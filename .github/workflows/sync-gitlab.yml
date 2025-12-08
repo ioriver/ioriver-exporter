@@ -1,0 +1,20 @@
+name: Sync GitLab on Merge
+
+on:
+  push:
+    branches:
+      - "*"
+
+# Add "id-token" with the intended permissions.
+permissions:
+  contents: "read"
+  id-token: "write"
+
+jobs:
+  sync:
+    uses: ioriver/github-workflows/.github/workflows/sync-gitlab.yml@master
+    with:
+      ORG_NAME: ${{ github.org }}
+      REPO_NAME: ${{ github.repository }}
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+    secrets: inherit
