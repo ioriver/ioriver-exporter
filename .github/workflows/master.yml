@@ -67,12 +67,3 @@ jobs:
           allow-initial-development-versions: true
           changelog-file: true
           changelog-generator-opt: "emojis=true"
-
-  send_email:
-    uses: ioriver/github-workflows/.github/workflows/email-sendgrid.yml@master
-    needs: [build]
-    with:
-      MAIL_TO: "developers@ioriver.io"
-      MAIL_SUBJECT: ${{ github.repository }} - new version released
-      MAIL_HTML: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-    secrets: inherit
