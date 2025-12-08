@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Build artifacts
+ioriver-exporter
+*.exe
+*.test
+*.out
+
+# Documentation
+README.md
+LICENSE
+
+# CI/CD
+.github
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Test files
+*_test.go
+tests/
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
