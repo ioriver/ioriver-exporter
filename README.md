@@ -24,7 +24,7 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 
 ## Installation
 
-### Docker 
+### Docker
 
 Available on the [packages page](https://github.com/ioriver/ioriver-exporter/pkgs/container/ioriver-exporter).
 
@@ -101,17 +101,17 @@ All metrics are prefixed with `ioriver_traffic_` and include the following label
 
 ### Available Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `ioriver_traffic_hits` | Gauge | Total hits served |
-| `ioriver_traffic_bytes` | Gauge | Total bytes served |
-| `ioriver_traffic_cached_hits_percentage` | Gauge | Cached hits percentage |
+| Metric                                    | Type  | Description             |
+| ----------------------------------------- | ----- | ----------------------- |
+| `ioriver_traffic_hits`                    | Gauge | Total hits served       |
+| `ioriver_traffic_bytes`                   | Gauge | Total bytes served      |
+| `ioriver_traffic_cached_hits_percentage`  | Gauge | Cached hits percentage  |
 | `ioriver_traffic_cached_bytes_percentage` | Gauge | Cached bytes percentage |
-| `ioriver_traffic_errors_percentage` | Gauge | Error percentage |
+| `ioriver_traffic_errors_percentage`       | Gauge | Error percentage        |
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
