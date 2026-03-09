@@ -20,9 +20,26 @@ func (c *FakeIorClient) ListServices() ([]ioriver.Service, error) {
 }
 
 func (c *FakeIorClient) GetTraffic(serviceId string, startTime int64, endTime int64, granularity ioriver.Granularity) (*ioriver.Traffic, error) {
+	return c.getTraffic(trafficOvertimeResponse)
+}
+
+func (c *FakeIorClient) GetAdvancedTraffic(serviceId string, startTime int64, endTime int64, granularity ioriver.Granularity, advancedMetric ioriver.AdvancedMetric) (*ioriver.Traffic, error) {
+	traffic, err := c.getTraffic(trafficAdvancedResponse)
+	if err != nil {
+		return nil, err
+	}
+	if c.TrafficResponseJson == "" {
+		name := advancedMetric.String()
+		traffic.ServiceStats[0].Points[0].Metrics[0].AdvancedMetricName = &name
+		traffic.ServiceStats[0].Points[0].Metrics[1].AdvancedMetricName = &name
+	}
+	return traffic, err
+}
+
+func (c *FakeIorClient) getTraffic(trafficResponseJson string) (*ioriver.Traffic, error) {
 	var response []byte
 	if c.TrafficResponseJson == "" {
-		response = []byte(trafficOvertimeResponse)
+		response = []byte(trafficResponseJson)
 	} else {
 		response = []byte(c.TrafficResponseJson)
 	}
@@ -75,14 +92,7 @@ const trafficOvertimeResponse = `{
 								"bytes": 3659521,
 								"cachedHitsPercentage": 96.368355,
 								"cachedBytesPercentage": 96.90178,
-								"edgeCachedHitsPercentage": 0.0,
-								"edgeCachedBytesPercentage": 0.0,
-								"errorsPercentage": 1.3618677,
-								"numMinutes": 1,
-								"midgressBytes": 0,
-								"midgressHits": 0,
-								"originHits": 0,
-								"originBytes": 0
+								"errorsPercentage": 1.3618677
 							}
 						},
 						{
@@ -95,14 +105,44 @@ const trafficOvertimeResponse = `{
 								"bytes": 14638086,
 								"cachedHitsPercentage": 94.53897,
 								"cachedBytesPercentage": 92.0581,
-								"edgeCachedHitsPercentage": 0.0,
-								"edgeCachedBytesPercentage": 0.0,
-								"errorsPercentage": 2.2524712,
-								"numMinutes": 1,
-								"midgressBytes": 0,
-								"midgressHits": 0,
-								"originHits": 0,
-								"originBytes": 0
+								"errorsPercentage": 2.2524712
+							}
+						}
+					]
+				}
+			]
+		}
+	],
+	"granularity": "MINUTE",
+	"error": null
+}`
+
+const trafficAdvancedResponse = `{
+	"serviceStats": [
+		{
+			"serviceID": "15e72be2-cb5a-4451-90a7-73e72553eb2a",
+			"points": [
+				{
+					"timestamp": 1752827340000,
+					"metrics": [
+						{
+							"providerName": "cfrnt",
+							"geo": null,
+							"advancedMetricName": null,
+							"advancedMetricValue": "value",
+							"metrics": {
+								"hits": 15,
+								"bytes": 3659
+							}
+						},
+						{
+							"providerName": "fs",
+							"geo": null,
+							"advancedMetricName": null,
+							"advancedMetricValue": "value",
+							"metrics": {
+								"hits": 61,
+								"bytes": 1463
 							}
 						}
 					]

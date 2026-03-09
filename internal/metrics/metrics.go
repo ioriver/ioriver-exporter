@@ -15,53 +15,95 @@ type Metric struct {
 	Value float64
 }
 
-type Metrics struct {
-	Hits                      *Metric
-	Bytes                     *Metric
-	CachedHitsPercentage      *Metric
-	CachedBytesPercentage     *Metric
-	EdgeCachedHitsPercentage  *Metric
-	EdgeCachedBytesPercentage *Metric
-	ErrorsPercentage          *Metric
-	NumMinutes                *Metric
-	MidgressBytes             *Metric
-	MidgressHits              *Metric
-	OriginHits                *Metric
-	OriginBytes               *Metric
+type Metrics interface {
+
+	// ToPrometheusMetrics converts to Prometheus metrics.
+	ToPrometheusMetrics() []*prometheus.Metric
+	// GetTimestamp returns the time when the metrics were collected by IORiver
+	GetTimestamp() int64
+}
+
+type MainMetrics struct {
+	Hits  *Metric
+	Bytes *Metric
 
 	labels    map[string]string
 	timestamp int64
 }
 
-func NewMetrics(labels map[string]string, timestamp int64) *Metrics {
+type AllMetrics struct {
+	MainMetrics
+	CachedHitsPercentage      *Metric
+	CachedBytesPercentage     *Metric
+	EdgeCachedHitsPercentage  *Metric
+	EdgeCachedBytesPercentage *Metric
+	ErrorsPercentage          *Metric
+}
 
-	m := &Metrics{
-		Hits:                  &Metric{Name: "hits", Help: "Total hits served."},
-		Bytes:                 &Metric{Name: "bytes", Help: "Total bytes served."},
+func NewAllMetrics(labels map[string]string, timestamp int64) *AllMetrics {
+
+	m := &AllMetrics{
+		MainMetrics: MainMetrics{
+			Hits:      &Metric{Name: "hits", Help: "Total hits served."},
+			Bytes:     &Metric{Name: "bytes", Help: "Total bytes served."},
+			labels:    labels,
+			timestamp: timestamp,
+		},
 		CachedHitsPercentage:  &Metric{Name: "cached_hits_percentage", Help: "Cached hits percentage."},
 		CachedBytesPercentage: &Metric{Name: "cached_bytes_percentage", Help: "Cached bytes percentage."},
 		ErrorsPercentage:      &Metric{Name: "errors_percentage", Help: "Error percentage."},
 	}
-
-	m.labels = labels
-	m.timestamp = timestamp
 	return m
 }
 
-// ToPrometheusMetrics converts to Prometheus metrics.
-func (m *Metrics) ToPrometheusMetrics() []*prometheus.Metric {
+func NewStatusCodeMetrics(labels map[string]string, timestamp int64) *MainMetrics {
+	return &MainMetrics{
+		Hits:  &Metric{Name: "hits_by_status_code", Help: "Total hits served by status code"},
+		Bytes: &Metric{Name: "bytes_by_status_code", Help: "Total bytes served by status code"},
+
+		labels:    labels,
+		timestamp: timestamp,
+	}
+}
+
+func NewHttpVersionMetrics(labels map[string]string, timestamp int64) *MainMetrics {
+	return &MainMetrics{
+		Hits:  &Metric{Name: "hits_by_http_version", Help: "Total hits served by HTTP version"},
+		Bytes: &Metric{Name: "bytes_by_http_version", Help: "Total bytes served by HTTP version"},
+
+		labels:    labels,
+		timestamp: timestamp,
+	}
+}
+
+func NewHttpMethodMetrics(labels map[string]string, timestamp int64) *MainMetrics {
+	return &MainMetrics{
+		Hits:  &Metric{Name: "hits_by_http_method", Help: "Total hits served by HTTP method"},
+		Bytes: &Metric{Name: "bytes_by_http_method", Help: "Total bytes served by HTTP method"},
+
+		labels:    labels,
+		timestamp: timestamp,
+	}
+}
+
+func (m *MainMetrics) ToPrometheusMetrics() []*prometheus.Metric {
+	labelNames, labelValues := m.collectLabels()
+
+	metrics := []*Metric{m.Hits, m.Bytes}
+	promMetrics := m.toPrometheusMetrics(metrics, labelNames, labelValues)
+	return promMetrics
+}
+
+func (m *MainMetrics) collectLabels() ([]string, []string) {
 	var labelNames, labelValues []string
 	for k, v := range m.labels {
 		labelNames = append(labelNames, k)
 		labelValues = append(labelValues, v)
 	}
+	return labelNames, labelValues
+}
 
-	metrics := []*Metric{
-		m.Hits,
-		m.Bytes,
-		m.CachedHitsPercentage,
-		m.CachedBytesPercentage,
-		m.ErrorsPercentage}
+func (*MainMetrics) toPrometheusMetrics(metrics []*Metric, labelNames []string, labelValues []string) []*prometheus.Metric {
 	promMetrics := make([]*prometheus.Metric, 0, len(metrics))
 
 	for _, met := range metrics {
@@ -73,7 +115,14 @@ func (m *Metrics) ToPrometheusMetrics() []*prometheus.Metric {
 	return promMetrics
 }
 
-// GetTimestamp returns the time when the metrics were collected by IORiver
-func (m *Metrics) GetTimestamp() int64 {
+func (m *MainMetrics) GetTimestamp() int64 {
 	return m.timestamp
+}
+
+func (m *AllMetrics) ToPrometheusMetrics() []*prometheus.Metric {
+	labelNames, labelValues := m.collectLabels()
+
+	metrics := []*Metric{m.Hits, m.Bytes, m.CachedHitsPercentage, m.CachedBytesPercentage, m.ErrorsPercentage}
+	promMetrics := m.toPrometheusMetrics(metrics, labelNames, labelValues)
+	return promMetrics
 }

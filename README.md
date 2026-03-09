@@ -1,7 +1,6 @@
 # ioriver-exporter
 
 [![Go Version](https://img.shields.io/badge/Go-1.24-blue.svg)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https://ioriver.io/) services.
 
@@ -24,26 +23,20 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 
 ## Installation
 
-### Docker
+### Docker 
 
-Available on the [packages page](https://github.com/ioriver/ioriver-exporter/pkgs/container/ioriver-exporter).
+Available on the [packages page](https://github.com/ioriver-dev/ioriver-exporter/pkgs/container/ioriver-exporter).
 
 ```sh
-docker pull ghcr.io/ioriver/ioriver-exporter:latest
+docker pull ghcr.io/ioriver-dev/ioriver-exporter
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/ioriver/ioriver-exporter.git
+git clone https://github.com/ioriver-dev/ioriver-exporter.git
 cd ioriver-exporter
 go build -o ioriver-exporter ./cmd/ioriver-exporter
-```
-
-### Using Go Install
-
-```bash
-go install github.com/ioriver/ioriver-exporter/cmd/ioriver-exporter@latest
 ```
 
 ## Authentication
@@ -72,12 +65,12 @@ OPTIONS
   -version [false]             Print version information and exit
 ```
 
-## Example of Usage
+## Examples
 
 Run in Docker (recommended)
 
 ```bash
-docker run --detach --expose 8080:8080 --env IORIVER_API_TOKEN=emxpdcbe7a83b537ac696442d9f82a9137542d1049d0c781 ghcr.io/ioriver/ioriver-exporter:latest
+docker run --detach --publish 8080:8080 --env IORIVER_API_TOKEN=emxpdcbe7a83b537ac696442d9f82a9137542d1049d0c781 ghcr.io/ioriver-dev/ioriver-exporter
 ```
 
 Run with custom options
@@ -86,9 +79,9 @@ Run with custom options
 # Custom metrics address and refresh intervals
 ./ioriver-exporter \
   -token "your-api-token" \
-  -listen "127.0.0.1:9090" \
+  -listen "127.0.0.1:8080" \
   -service-refresh 30s \
-  -traffic-delay 2m \
+  -traffic-delay 30m \
   -verbose
 ```
 
@@ -101,17 +94,23 @@ All metrics are prefixed with `ioriver_traffic_` and include the following label
 
 ### Available Metrics
 
-| Metric                                    | Type  | Description             |
-| ----------------------------------------- | ----- | ----------------------- |
-| `ioriver_traffic_hits`                    | Gauge | Total hits served       |
-| `ioriver_traffic_bytes`                   | Gauge | Total bytes served      |
-| `ioriver_traffic_cached_hits_percentage`  | Gauge | Cached hits percentage  |
-| `ioriver_traffic_cached_bytes_percentage` | Gauge | Cached bytes percentage |
-| `ioriver_traffic_errors_percentage`       | Gauge | Error percentage        |
+| Metric                                    | Type  | Description                        |
+|-------------------------------------------|-------|------------------------------------|
+| `ioriver_traffic_bytes`                   | Gauge | Total bytes served                 |
+| `ioriver_traffic_cached_bytes_percentage` | Gauge | Cached bytes percentage            |
+| `ioriver_traffic_bytes_by_http_method`    | Gauge | Total bytes served by HTTP method  |
+| `ioriver_traffic_bytes_by_http_version`   | Gauge | Total bytes served by HTTP version |
+| `ioriver_traffic_bytes_by_status_code`    | Gauge | Total bytes served by status code  |
+| `ioriver_traffic_hits`                    | Gauge | Total hits served                  |
+| `ioriver_traffic_cached_hits_percentage`  | Gauge | Cached hits percentage             |
+| `ioriver_traffic_hits_by_http_method`     | Gauge | Total hits served by HTTP method   |
+| `ioriver_traffic_hits_by_http_version`    | Gauge | Total hits served by HTTP version  |
+| `ioriver_traffic_hits_by_status_code`     | Gauge | Total hits served by status code   |
+| `ioriver_traffic_errors_percentage`       | Gauge | Error percentage                   |
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 

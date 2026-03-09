@@ -7,14 +7,6 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-func TestMetrics(t *testing.T) {
-	metrics := NewMetrics(map[string]string{"a": "b"}, 0)
-
-	if metrics == nil {
-		t.Error("failed to create metrics")
-	}
-}
-
 func TestToPrometheusMetrics(t *testing.T) {
 	labels := map[string]string{
 		"service": "test-service",
@@ -22,7 +14,7 @@ func TestToPrometheusMetrics(t *testing.T) {
 	}
 	timestamp := int64(1234567890)
 
-	m := NewMetrics(labels, timestamp)
+	m := NewAllMetrics(labels, timestamp)
 
 	// Set some test values
 	m.Hits.Value = 1000
