@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/ioriver/ioriver-go"
 )
 
 func TestSubscriber(t *testing.T) {
@@ -28,6 +29,12 @@ func TestSubscriber(t *testing.T) {
 	exp := []string{
 		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 subscriber=update", tests.ServiceId),
 		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 subscriber=update", tests.ServiceId),
+		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.StatusCode),
+		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.StatusCode),
+		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpVersion),
+		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpVersion),
+		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpMethod),
+		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpMethod),
 	}
 	act := strings.Split(strings.TrimSpace(loggerBuffer.String()), "\n")
 	tests.AssertStringSliceEqual(t, exp, act)
@@ -73,6 +80,36 @@ func TestSubscriberStatHasNoPoints(t *testing.T) {
 	act := strings.TrimSpace(loggerBuffer.String())
 	if !strings.Contains(act, exp) {
 		t.Error("unexpected debug message")
+	}
+}
+
+func TestGetPrometheusMetrics(t *testing.T) {
+	var (
+		iorClient    = &tests.FakeIorClient{}
+		loggerBuffer = &bytes.Buffer{}
+		logger       = log.NewLogfmtLogger(loggerBuffer)
+		trafficDelay = 1 * time.Minute
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, trafficDelay, level.NewFilter(logger, level.AllowDebug()))
+	)
+
+	// Update metrics by starting and stopping subscription
+	startStopSubscription(t, subscriber)
+
+	promMetrics := subscriber.GetPrometheusMetrics()
+
+	if len(promMetrics) == 0 {
+		t.Fatal("expected Prometheus metrics, got none")
+	}
+
+	// Verify expected timestamp (from fake client data)
+	expectedTimestamp := int64(1752827340000)
+	if promMetrics[0].Timestamp != expectedTimestamp {
+		t.Errorf("expected timestamp %d, got %d", expectedTimestamp, promMetrics[0].Timestamp)
+	}
+
+	expectedMetricCount := 22
+	if len(promMetrics) != expectedMetricCount {
+		t.Errorf("expected %d Prometheus metrics, got %d", expectedMetricCount, len(promMetrics))
 	}
 }
 

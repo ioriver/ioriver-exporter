@@ -23,7 +23,7 @@ const metricsGranularity = time.Duration(-2) * time.Minute
 type Subscriber struct {
 	iorClient    api.IORiverClient
 	serviceId    string
-	metrics      []*metrics.Metrics
+	metrics      []metrics.Metrics
 	trafficDelay time.Duration
 	logger       log.Logger
 
@@ -34,7 +34,7 @@ func NewSubscriber(iorClient api.IORiverClient, serviceId string, trafficDelay t
 	return &Subscriber{
 		iorClient:    iorClient,
 		serviceId:    serviceId,
-		metrics:      make([]*metrics.Metrics, 0),
+		metrics:      make([]metrics.Metrics, 0),
 		trafficDelay: trafficDelay,
 		logger:       logger,
 	}
@@ -68,48 +68,84 @@ func (s *Subscriber) GetPrometheusMetrics() []collectors.PrometheusMetric {
 }
 
 func (s *Subscriber) updateMetrics() {
-	to := time.Now().Add(-s.trafficDelay)
-	from := to.Add(metricsGranularity)
+	allMetrics := make([]metrics.Metrics, 0, 4)
+	var metrics []metrics.Metrics
+
+	metrics = s.getTrafficMetrics()
+	allMetrics = append(allMetrics, metrics...)
+
+	metrics = s.getAdvancedTrafficMetrics(ioriver.StatusCode)
+	allMetrics = append(allMetrics, metrics...)
+
+	metrics = s.getAdvancedTrafficMetrics(ioriver.HttpVersion)
+	allMetrics = append(allMetrics, metrics...)
+
+	metrics = s.getAdvancedTrafficMetrics(ioriver.HttpMethod)
+	allMetrics = append(allMetrics, metrics...)
+
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.metrics = allMetrics
+}
+
+func (s *Subscriber) getTrafficMetrics() []metrics.Metrics {
+	from, to := s.getTimeRange()
 	traffic, err := s.iorClient.GetTraffic(s.serviceId, from.UnixMilli(), to.UnixMilli(), ioriver.Minute)
 	if err != nil {
 		level.Warn(s.logger).Log("subscriber", fmt.Sprintf("failed to get traffic for service %s: %s", s.serviceId, err))
-		return
+		return []metrics.Metrics{}
 	}
 
-	if len(traffic.ServiceStats) == 0 {
-		level.Debug(s.logger).Log("subscriber", fmt.Sprintf("empty service stat for service %s", s.serviceId))
-		return
-	}
-
-	maxTimestamp := getMaxTimestamp(s.serviceId, traffic.ServiceStats)
+	maxTimestamp := s.getMaxTimestamp(s.serviceId, traffic.ServiceStats)
 	if maxTimestamp == 0 {
 		level.Debug(s.logger).Log("subscriber", fmt.Sprintf("no statistic points for service %s", s.serviceId))
-		return
+		return []metrics.Metrics{}
 	}
 
 	// convert all stats metrics
-	var metrics []*metrics.Metrics
+	var metrics []metrics.Metrics
 	for _, providerName := range getAllProviderNames(traffic.ServiceStats, s.serviceId) {
 		providerMetrics := s.convertStatsToMetrics(traffic, providerName, maxTimestamp)
 		metrics = append(metrics, providerMetrics...)
 	}
-
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-	s.metrics = metrics
+	return metrics
 }
 
-func (s *Subscriber) convertStatsToMetrics(traffic *ioriver.Traffic, providerName string, timestamp int64) []*metrics.Metrics {
-	stats := traffic.GetFilteredMetrics(s.serviceId, func(metric *ioriver.Metric, metricTimestamp int64) bool {
+func (s *Subscriber) getAdvancedTrafficMetrics(advancedMetric ioriver.AdvancedMetric) []metrics.Metrics {
+	from, to := s.getTimeRange()
+	traffic, err := s.iorClient.GetAdvancedTraffic(s.serviceId, from.UnixMilli(), to.UnixMilli(), ioriver.Minute, advancedMetric)
+	if err != nil {
+		level.Warn(s.logger).Log("subscriber", fmt.Sprintf("failed to get advanced traffic for service %s: %s", s.serviceId, err))
+		return []metrics.Metrics{}
+	}
+
+	maxTimestamp := s.getMaxTimestamp(s.serviceId, traffic.ServiceStats)
+	if maxTimestamp == 0 {
+		level.Debug(s.logger).Log("subscriber", fmt.Sprintf("no statistic points for service %s", s.serviceId))
+		return []metrics.Metrics{}
+	}
+
+	// convert all advanced stats metrics
+	var metrics []metrics.Metrics
+	for _, providerName := range getAllProviderNames(traffic.ServiceStats, s.serviceId) {
+		providerMetrics := s.convertAdvancedStatsToMetrics(traffic, providerName, maxTimestamp, advancedMetric)
+		metrics = append(metrics, providerMetrics...)
+	}
+	return metrics
+}
+
+func (s *Subscriber) convertStatsToMetrics(traffic *ioriver.Traffic, providerName string, timestamp int64) []metrics.Metrics {
+	values := traffic.GetFilteredMetrics(s.serviceId, func(metric *ioriver.Metric, metricTimestamp int64) bool {
 		return metric.ProviderName == providerName && metricTimestamp == timestamp
 	})
 
 	labels := map[string]string{"serviceID": s.serviceId, "providerName": abbreviationToProviderName(providerName)}
 	level.Debug(s.logger).Log("service_id", s.serviceId, "provider", providerName, "time", timestamp, "subscriber", "update")
-	providerMetrics := make([]*metrics.Metrics, 0, len(stats))
+	providerMetrics := make([]metrics.Metrics, 0, len(values))
 
-	for _, stat := range stats {
-		metrics := metrics.NewMetrics(labels, timestamp)
+	for _, value := range values {
+		stat := value.Metrics
+		metrics := metrics.NewAllMetrics(labels, timestamp)
 		metrics.Hits.Value = float64(stat.Hits)
 		metrics.Bytes.Value = float64(stat.Bytes)
 		metrics.CachedHitsPercentage.Value = stat.CachedHitsPercentage
@@ -119,6 +155,70 @@ func (s *Subscriber) convertStatsToMetrics(traffic *ioriver.Traffic, providerNam
 		providerMetrics = append(providerMetrics, metrics)
 	}
 	return providerMetrics
+}
+
+func (s *Subscriber) convertAdvancedStatsToMetrics(
+	traffic *ioriver.Traffic, providerName string, timestamp int64, advanceMetric ioriver.AdvancedMetric) []metrics.Metrics {
+	values := traffic.GetFilteredMetrics(s.serviceId,
+		func(metric *ioriver.Metric, metricTimestamp int64) bool {
+			if metric.AdvancedMetricName == nil || metric.AdvancedMetricValue == nil {
+				return false
+			}
+			return metric.ProviderName == providerName && metricTimestamp == timestamp && *metric.AdvancedMetricName == advanceMetric.String()
+		})
+
+	level.Debug(s.logger).Log("service_id", s.serviceId, "provider", providerName, "time", timestamp, "advanced", advanceMetric, "subscriber", "update")
+	providerMetrics := make([]metrics.Metrics, 0, len(values))
+	fullProviderName := abbreviationToProviderName(providerName)
+
+	for _, value := range values {
+		stat := value.Metrics
+		labels := map[string]string{
+			"serviceID": s.serviceId, "providerName": fullProviderName,
+			"advancedMetricValue": *value.AdvancedMetricValue,
+		}
+		var advancedMetrics *metrics.MainMetrics
+		switch *value.AdvancedMetricName {
+		case ioriver.StatusCode.String():
+			advancedMetrics = metrics.NewStatusCodeMetrics(labels, timestamp)
+		case ioriver.HttpVersion.String():
+			advancedMetrics = metrics.NewHttpVersionMetrics(labels, timestamp)
+		case ioriver.HttpMethod.String():
+			advancedMetrics = metrics.NewHttpMethodMetrics(labels, timestamp)
+		default:
+			panic("unexpected advanced metric name, must never happen")
+		}
+		advancedMetrics.Hits.Value = float64(stat.Hits)
+		advancedMetrics.Bytes.Value = float64(stat.Bytes)
+		providerMetrics = append(providerMetrics, advancedMetrics)
+	}
+	return providerMetrics
+}
+
+func (s *Subscriber) getMaxTimestamp(serviceId string, stats []ioriver.ServiceStats) int64 {
+	if len(stats) == 0 {
+		level.Debug(s.logger).Log("subscriber", fmt.Sprintf("empty service stat for service %s", s.serviceId))
+		return 0
+	}
+
+	var timestamps []int64
+	for _, stat := range stats {
+		if stat.ServiceId == serviceId {
+			for _, p := range stat.Points {
+				timestamps = append(timestamps, p.Timestamp)
+			}
+		}
+	}
+	if len(timestamps) > 0 {
+		return slices.Max(timestamps)
+	}
+	return 0
+}
+
+func (s *Subscriber) getTimeRange() (from time.Time, to time.Time) {
+	to = time.Now().Add(-s.trafficDelay)
+	from = to.Add(metricsGranularity)
+	return
 }
 
 func getAllProviderNames(stats []ioriver.ServiceStats, serviceId string) []string {
@@ -136,21 +236,6 @@ func getAllProviderNames(stats []ioriver.ServiceStats, serviceId string) []strin
 		}
 	}
 	return providerNames
-}
-
-func getMaxTimestamp(serviceId string, stats []ioriver.ServiceStats) int64 {
-	var timestamps []int64
-	for _, stat := range stats {
-		if stat.ServiceId == serviceId {
-			for _, p := range stat.Points {
-				timestamps = append(timestamps, p.Timestamp)
-			}
-		}
-	}
-	if len(timestamps) > 0 {
-		return slices.Max(timestamps)
-	}
-	return 0
 }
 
 func abbreviationToProviderName(name string) string {
