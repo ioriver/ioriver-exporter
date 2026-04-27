@@ -235,6 +235,7 @@ func getAllProviderNames(stats []ioriver.ServiceStats, serviceId string) []strin
 			}
 		}
 	}
+
 	return providerNames
 }
 
