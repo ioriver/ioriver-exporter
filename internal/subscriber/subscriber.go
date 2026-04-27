@@ -150,7 +150,7 @@ func (s *Subscriber) convertStatsToMetrics(traffic *ioriver.Traffic, providerNam
 		metrics.Bytes.Value = float64(stat.Bytes)
 		metrics.CachedHitsPercentage.Value = stat.CachedHitsPercentage
 		metrics.CachedBytesPercentage.Value = stat.CachedBytesPercentage
-		metrics.ErrorsPercentage.Value = stat.EdgeCachedHitsPercentage
+		metrics.ErrorsPercentage.Value = stat.ErrorsPercentage
 
 		providerMetrics = append(providerMetrics, metrics)
 	}
