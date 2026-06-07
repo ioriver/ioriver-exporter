@@ -23,7 +23,7 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 
 ## Installation
 
-### Docker 
+### Docker
 
 Available on the [packages page](https://github.com/ioriver-dev/ioriver-exporter/pkgs/container/ioriver-exporter).
 
@@ -43,7 +43,13 @@ go build -o ioriver-exporter ./cmd/ioriver-exporter
 
 ### Environment Variable
 
-`IORIVER_API_TOKEN`: IO River API authentication token (required, unless the `-token` command-line option is included)
+```
+  IORIVER_API_TOKEN:           IO River API authentication token (required, unless the `-token` command-line option is included)
+  IORIVER_LISTEN:              Listen address for HTTP requests
+  IORIVER_SERVICE_REFRESH:     How often to poll IO River to refresh the list of services (15s–10m)
+  IORIVER_TRAFFIC_TIMESTAMP:   Time series should be created with the traffic timestamp
+  IORIVER_VERBOSE:             Print more information
+```
 
 ### Command-Line Option
 
@@ -59,7 +65,6 @@ OPTIONS
   -token [string]              IO River API token (required unless set by IORIVER_API_TOKEN)
   -listen [127.0.0.1:8080]     Listen address for HTTP requests
   -service-refresh [1m0s]      How often to poll IO River to refresh the list of services (15s–10m)
-  -traffic-delay [30m0s]       Export IO River traffic metrics collected this time ago
   -traffic-timestamp [false]   Time series should be created with the traffic timestamp
   -verbose [false]             Print more information
   -version [false]             Print version information and exit
@@ -81,7 +86,6 @@ Run with custom options
   -token "your-api-token" \
   -listen "127.0.0.1:8080" \
   -service-refresh 30s \
-  -traffic-delay 30m \
   -verbose
 ```
 
@@ -107,6 +111,22 @@ All metrics are prefixed with `ioriver_traffic_` and include the following label
 | `ioriver_traffic_hits_by_http_version`    | Gauge | Total hits served by HTTP version  |
 | `ioriver_traffic_hits_by_status_code`     | Gauge | Total hits served by status code   |
 | `ioriver_traffic_errors_percentage`       | Gauge | Error percentage                   |
+
+## Data Delays
+
+Traffic metrics are collected periodically from each configured CDN provider: 
+- Due to provider-specific processing pipelines, metric availability is subject to inherent delays. 
+- These delays vary by provider, ranging from a few minutes up to approximately one hour before data becomes accessible via their APIs.
+
+The IO River Prometheus provider accounts for these differences by:
+- Dynamically polling each CDN provider.
+- Ingesting metrics as soon as they become available, rather than assuming uniform availability across sources.
+
+It is important to note that Prometheus, by default, continues to display the most recent data point when no new data has been received. This behavior can lead to misinterpretation, as it may appear that metrics are current when they are not.
+
+To ensure that queries reflect only explicitly retrieved data points, it is recommended to use the [last_over_time](https://prometheus.io/docs/prometheus/latest/querying/functions/#aggregation_over_time) function. For example:
+
+```last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])```
 
 ## License
 

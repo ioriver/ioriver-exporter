@@ -15,7 +15,6 @@ const (
 	tokenEnvVar            = "IORIVER_API_TOKEN"
 	listenEnvVar           = "IORIVER_LISTEN"
 	serviceRefreshEnvVar   = "IORIVER_SERVICE_REFRESH"
-	trafficDelayEnvVar     = "IORIVER_TRAFFIC_DELAY"
 	trafficTimestampEnvVar = "IORIVER_TRAFFIC_TIMESTAMP"
 	verboseEnvVar          = "IORIVER_VERBOSE"
 )
@@ -23,14 +22,12 @@ const (
 const (
 	defaultListen         = "127.0.0.1:8080"
 	defaultServiceRefresh = 1 * time.Minute
-	defaultTrafficDelay   = 30 * time.Minute
 )
 
 type Settings struct {
 	Token            string
 	Listen           string
 	ServiceRefresh   time.Duration
-	TrafficDelay     time.Duration
 	TrafficTimestamp bool
 	Verbose          bool
 	Version          bool
@@ -46,7 +43,6 @@ func CollectSettings(name string) (*Settings, error) {
 	fs.StringVar(&settings.Token, "token", "", tokenUsage)
 	fs.StringVar(&settings.Listen, "listen", defaultListen, "listen address for HTTP requests")
 	fs.DurationVar(&settings.ServiceRefresh, "service-refresh", defaultServiceRefresh, "how often to poll IORiver to refresh the list of services (15s–10m)")
-	fs.DurationVar(&settings.TrafficDelay, "traffic-delay", defaultTrafficDelay, "export IORiver traffic metrics collected this time ago")
 
 	fs.BoolVar(&settings.TrafficTimestamp, "traffic-timestamp", false, "time series should be created with the traffic timestamp")
 	fs.BoolVar(&settings.Verbose, "verbose", false, "print more information")
@@ -91,13 +87,6 @@ func (s *Settings) supplementSettingsFromEnv() {
 		if refresh := os.Getenv(serviceRefreshEnvVar); refresh != "" {
 			if d, err := time.ParseDuration(refresh); err == nil {
 				s.ServiceRefresh = d
-			}
-		}
-	}
-	if s.TrafficDelay == defaultTrafficDelay {
-		if delay := os.Getenv(trafficDelayEnvVar); delay != "" {
-			if d, err := time.ParseDuration(delay); err == nil {
-				s.TrafficDelay = d
 			}
 		}
 	}
