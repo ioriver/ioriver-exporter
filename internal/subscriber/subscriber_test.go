@@ -7,7 +7,6 @@ import (
 	"ioriver_exporter/tests"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -20,8 +19,7 @@ func TestSubscriber(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		trafficDelay = 1 * time.Minute
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, trafficDelay, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	startStopSubscription(t, subscriber)
@@ -43,10 +41,9 @@ func TestSubscriber(t *testing.T) {
 func TestSubscriberFailedToGetStat(t *testing.T) {
 	var (
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: "not_valid"}
-		trafficDelay = 1 * time.Minute
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, trafficDelay, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	startStopSubscription(t, subscriber)
@@ -68,10 +65,9 @@ func TestSubscriberStatHasNoPoints(t *testing.T) {
 
 	var (
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: resp}
-		trafficDelay = 1 * time.Minute
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, trafficDelay, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	startStopSubscription(t, subscriber)
@@ -88,8 +84,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		trafficDelay = 1 * time.Minute
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, trafficDelay, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	// Update metrics by starting and stopping subscription

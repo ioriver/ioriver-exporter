@@ -16,27 +16,28 @@ import (
 )
 
 const updateInterval = 30 * time.Second
-const metricsGranularity = time.Duration(-2) * time.Minute
+
+// Some CDN providers deliver completed traffic logs with a delay of up to half an hour.
+// This const defines how many minutes back we want to retrieve statistics from.
+const metricsLookBack = time.Duration(-40) * time.Minute
 
 // Subscriber polls IORiver traffic statistics endpoints for a given service
 // and keep it as Prometheus metrics.
 type Subscriber struct {
-	iorClient    api.IORiverClient
-	serviceId    string
-	metrics      []metrics.Metrics
-	trafficDelay time.Duration
-	logger       log.Logger
+	iorClient api.IORiverClient
+	serviceId string
+	metrics   []metrics.Metrics
+	logger    log.Logger
 
 	mtx sync.RWMutex
 }
 
-func NewSubscriber(iorClient api.IORiverClient, serviceId string, trafficDelay time.Duration, logger log.Logger) *Subscriber {
+func NewSubscriber(iorClient api.IORiverClient, serviceId string, logger log.Logger) *Subscriber {
 	return &Subscriber{
-		iorClient:    iorClient,
-		serviceId:    serviceId,
-		metrics:      make([]metrics.Metrics, 0),
-		trafficDelay: trafficDelay,
-		logger:       logger,
+		iorClient: iorClient,
+		serviceId: serviceId,
+		metrics:   make([]metrics.Metrics, 0),
+		logger:    logger,
 	}
 }
 
@@ -216,8 +217,8 @@ func (s *Subscriber) getMaxTimestamp(serviceId string, stats []ioriver.ServiceSt
 }
 
 func (s *Subscriber) getTimeRange() (from time.Time, to time.Time) {
-	to = time.Now().Add(-s.trafficDelay)
-	from = to.Add(metricsGranularity)
+	to = time.Now()
+	from = to.Add(metricsLookBack)
 	return
 }
 
@@ -235,7 +236,6 @@ func getAllProviderNames(stats []ioriver.ServiceStats, serviceId string) []strin
 			}
 		}
 	}
-
 	return providerNames
 }
 

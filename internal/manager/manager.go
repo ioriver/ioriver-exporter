@@ -112,7 +112,7 @@ func (m *SubscriptionManager) stopAll(managed managed) {
 // spawn a subroutine for a new subscriber
 func (m *SubscriptionManager) spawn(serviceId string) interrupt {
 	var (
-		subscriber  = subscriber.NewSubscriber(m.iorClient, serviceId, m.settings.TrafficDelay, m.logger)
+		subscriber  = subscriber.NewSubscriber(m.iorClient, serviceId, m.logger)
 		ctx, cancel = context.WithCancel(context.Background())
 		done        = make(chan error, 1)
 	)
