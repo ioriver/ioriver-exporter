@@ -11,6 +11,7 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/ioriver/ioriver-go"
+	dto "github.com/prometheus/client_model/go"
 )
 
 func TestSubscriber(t *testing.T) {
@@ -19,7 +20,7 @@ func TestSubscriber(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	startStopSubscription(t, subscriber)
@@ -43,7 +44,7 @@ func TestSubscriberFailedToGetStat(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: "not_valid"}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	startStopSubscription(t, subscriber)
@@ -67,7 +68,7 @@ func TestSubscriberStatHasNoPoints(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: resp}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	startStopSubscription(t, subscriber)
@@ -84,7 +85,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	// Update metrics by starting and stopping subscription
@@ -102,9 +103,44 @@ func TestGetPrometheusMetrics(t *testing.T) {
 		t.Errorf("expected timestamp %d, got %d", expectedTimestamp, promMetrics[0].Timestamp)
 	}
 
-	expectedMetricCount := 22
+	expectedMetricCount := 26
 	if len(promMetrics) != expectedMetricCount {
 		t.Errorf("expected %d Prometheus metrics, got %d", expectedMetricCount, len(promMetrics))
+	}
+
+	// Verify serviceName label is present on ALL metrics, and origin metrics are emitted
+	foundOriginHits := false
+	foundOriginBytes := false
+
+	for _, pm := range promMetrics {
+		metricDto := &dto.Metric{}
+		if err := (*pm.Metric).Write(metricDto); err != nil {
+			t.Fatalf("failed to write metric: %v", err)
+		}
+		hasServiceName := false
+		for _, label := range metricDto.Label {
+			if label.GetName() == "serviceName" && label.GetValue() == "ioriver" {
+				hasServiceName = true
+			}
+		}
+		if !hasServiceName {
+			descStr := (*pm.Metric).Desc().String()
+			t.Errorf("metric %s is missing serviceName=ioriver label", descStr)
+		}
+		descStr := (*pm.Metric).Desc().String()
+		if strings.Contains(descStr, "ioriver_traffic_origin_hits") {
+			foundOriginHits = true
+		}
+		if strings.Contains(descStr, "ioriver_traffic_origin_bytes") {
+			foundOriginBytes = true
+		}
+	}
+
+	if !foundOriginHits {
+		t.Error("expected ioriver_traffic_origin_hits metric to be exported")
+	}
+	if !foundOriginBytes {
+		t.Error("expected ioriver_traffic_origin_bytes metric to be exported")
 	}
 }
 

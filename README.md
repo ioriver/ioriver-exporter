@@ -49,6 +49,10 @@ go build -o ioriver-exporter ./cmd/ioriver-exporter
   IORIVER_SERVICE_REFRESH:     How often to poll IO River to refresh the list of services (15s–10m)
   IORIVER_TRAFFIC_TIMESTAMP:   Time series should be created with the traffic timestamp
   IORIVER_VERBOSE:             Print more information
+  IORIVER_SERVICE_IDS:         Comma-separated list of service IDs to export (default: all)
+  IORIVER_SERVICE_ALLOWLIST:   Export only services whose name matches this regex
+  IORIVER_SERVICE_BLOCKLIST:   Exclude services whose name matches this regex
+  IORIVER_SERVICE_SHARD:       Shard services across exporter instances, e.g. 1/3
 ```
 
 ### Command-Line Option
@@ -68,6 +72,10 @@ OPTIONS
   -traffic-timestamp [false]   Time series should be created with the traffic timestamp
   -verbose [false]             Print more information
   -version [false]             Print version information and exit
+  -service [string]            Export only this service ID (repeatable and/or comma-separated; default: all)
+  -service-allowlist [string]  Export only services whose name matches this regex
+  -service-blocklist [string]  Exclude services whose name matches this regex
+  -service-shard [string]      Shard services across exporter instances, e.g. 1/3
 ```
 
 ## Examples
@@ -88,6 +96,36 @@ Run with custom options
   -service-refresh 30s \
   -verbose
 ```
+
+## Service Filtering
+
+By default all services accessible to the API token are exported. You can restrict this with four flags that are applied in order:
+
+1. **`-service <id>`** — export only the listed service ID(s). Repeatable and comma-separated:
+   ```bash
+   ./ioriver-exporter -token ... -service aaa-111 -service bbb-222
+   ./ioriver-exporter -token ... -service aaa-111,bbb-222
+   ```
+
+2. **`-service-allowlist '<regex>'`** — keep only services whose **name** matches the regex:
+   ```bash
+   ./ioriver-exporter -token ... -service-allowlist '^Production'
+   ```
+
+3. **`-service-blocklist '<regex>'`** — exclude services whose **name** matches the regex:
+   ```bash
+   ./ioriver-exporter -token ... -service-blocklist '.*TEST.*'
+   ```
+
+4. **`-service-shard n/m`** — distribute services deterministically across `m` exporter instances. Run one instance per shard:
+   ```bash
+   ./ioriver-exporter [common flags] -service-shard 1/3
+   ./ioriver-exporter [common flags] -service-shard 2/3
+   ./ioriver-exporter [common flags] -service-shard 3/3
+   ```
+   Services are sorted alphabetically by ID before sharding, so the assignment is stable across restarts.
+
+All four flags can be combined; they are evaluated in the order listed above.
 
 ## Metrics
 
