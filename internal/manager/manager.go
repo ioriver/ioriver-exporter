@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"ioriver_exporter/api"
 	"ioriver_exporter/internal/collectors"
+	"ioriver_exporter/internal/filter"
 	"ioriver_exporter/internal/subscriber"
 	"sync"
 
@@ -36,6 +37,7 @@ type SubscriptionManager struct {
 	iorClient         api.IORiverClient
 	registry          MetricProviderRegistry
 	settings          *exporter_settings.Settings
+	filter            *filter.ServiceFilter
 	logger            log.Logger
 
 	mtx     sync.RWMutex
@@ -54,6 +56,7 @@ func NewSubscriptionManager(
 	iorClient api.IORiverClient,
 	registry MetricProviderRegistry,
 	settings *exporter_settings.Settings,
+	svcFilter *filter.ServiceFilter,
 	logger log.Logger) *SubscriptionManager {
 
 	m := &SubscriptionManager{
@@ -61,7 +64,11 @@ func NewSubscriptionManager(
 		iorClient:         iorClient,
 		registry:          registry,
 		settings:          settings,
+		filter:            svcFilter,
 		logger:            logger,
+	}
+	if m.filter == nil {
+		m.filter, _ = filter.NewServiceFilter(nil, "", "", "")
 	}
 	return m
 }
@@ -73,14 +80,14 @@ func (m *SubscriptionManager) Refresh() {
 	defer m.mtx.Unlock()
 
 	newManaged := managed{}
-	for _, service := range m.serviceIdProvider.GetServicesInfo() {
+	for _, service := range m.filter.Apply(m.serviceIdProvider.GetServicesInfo()) {
 		if irq, ok := m.managed[service]; ok {
 			level.Debug(m.logger).Log(toLogKeyVals(service, "manager", "managed")...)
 			newManaged[service] = irq
 			delete(m.managed, service)
 		} else {
 			level.Info(m.logger).Log(toLogKeyVals(service, "subscriber", "start")...)
-			newManaged[service] = m.spawn(service.Id)
+			newManaged[service] = m.spawn(service.Id, service.Name)
 		}
 	}
 
@@ -110,9 +117,9 @@ func (m *SubscriptionManager) stopAll(managed managed) {
 }
 
 // spawn a subroutine for a new subscriber
-func (m *SubscriptionManager) spawn(serviceId string) interrupt {
+func (m *SubscriptionManager) spawn(serviceId string, serviceName string) interrupt {
 	var (
-		subscriber  = subscriber.NewSubscriber(m.iorClient, serviceId, m.logger)
+		subscriber  = subscriber.NewSubscriber(m.iorClient, serviceId, serviceName, m.logger)
 		ctx, cancel = context.WithCancel(context.Background())
 		done        = make(chan error, 1)
 	)

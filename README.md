@@ -10,8 +10,9 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 - [Installation](#installation)
 - [Authentication](#authentication)
 - [Usage and Command-Line Options](#usage-and-command-line-options)
-- [Example of Usage](#example-of-usage)
+- [Examples](#examples)
 - [Metrics](#metrics)
+- [Grafana Dashboards](#grafana-dashboards)
 - [License](#license)
 
 ## Features
@@ -25,10 +26,10 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 
 ### Docker
 
-Available on the [packages page](https://github.com/ioriver-dev/ioriver-exporter/pkgs/container/ioriver-exporter).
+Available on the [packages page](https://github.com/ioriver/ioriver-exporter/pkgs/container/ioriver-exporter).
 
 ```sh
-docker pull ghcr.io/ioriver-dev/ioriver-exporter
+docker pull ghcr.io/ioriver/ioriver-exporter:latest
 ```
 
 ### From Source
@@ -49,6 +50,10 @@ go build -o ioriver-exporter ./cmd/ioriver-exporter
   IORIVER_SERVICE_REFRESH:     How often to poll IO River to refresh the list of services (15s–10m)
   IORIVER_TRAFFIC_TIMESTAMP:   Time series should be created with the traffic timestamp
   IORIVER_VERBOSE:             Print more information
+  IORIVER_SERVICE_IDS:         Comma-separated list of service IDs to export (default: all)
+  IORIVER_SERVICE_ALLOWLIST:   Export only services whose name matches this regex
+  IORIVER_SERVICE_BLOCKLIST:   Exclude services whose name matches this regex
+  IORIVER_SERVICE_SHARD:       Shard services across exporter instances, e.g. 1/3
 ```
 
 ### Command-Line Option
@@ -68,6 +73,10 @@ OPTIONS
   -traffic-timestamp [false]   Time series should be created with the traffic timestamp
   -verbose [false]             Print more information
   -version [false]             Print version information and exit
+  -service [string]            Export only this service ID (repeatable and/or comma-separated; default: all)
+  -service-allowlist [string]  Export only services whose name matches this regex
+  -service-blocklist [string]  Exclude services whose name matches this regex
+  -service-shard [string]      Shard services across exporter instances, e.g. 1/3
 ```
 
 ## Examples
@@ -75,7 +84,7 @@ OPTIONS
 Run in Docker (recommended)
 
 ```bash
-docker run --detach --publish 8080:8080 --env IORIVER_API_TOKEN=emxpdcbe7a83b537ac696442d9f82a9137542d1049d0c781 ghcr.io/ioriver-dev/ioriver-exporter
+docker run --detach --publish 8080:8080 --env IORIVER_API_TOKEN=<your-api-token> ghcr.io/ioriver/ioriver-exporter:latest
 ```
 
 Run with custom options
@@ -83,18 +92,49 @@ Run with custom options
 ```bash
 # Custom metrics address and refresh intervals
 ./ioriver-exporter \
-  -token "your-api-token" \
+  -token "<your-api-token>" \
   -listen "127.0.0.1:8080" \
   -service-refresh 30s \
   -verbose
 ```
 
+## Service Filtering
+
+By default all services accessible to the API token are exported. You can restrict this with four flags that are applied in order:
+
+1. **`-service <id>`** — export only the listed service ID(s). Repeatable and comma-separated:
+   ```bash
+   ./ioriver-exporter -token ... -service aaa-111 -service bbb-222
+   ./ioriver-exporter -token ... -service aaa-111,bbb-222
+   ```
+
+2. **`-service-allowlist '<regex>'`** — keep only services whose **name** matches the regex:
+   ```bash
+   ./ioriver-exporter -token ... -service-allowlist '^Production'
+   ```
+
+3. **`-service-blocklist '<regex>'`** — exclude services whose **name** matches the regex:
+   ```bash
+   ./ioriver-exporter -token ... -service-blocklist '.*TEST.*'
+   ```
+
+4. **`-service-shard n/m`** — distribute services deterministically across `m` exporter instances. Run one instance per shard:
+   ```bash
+   ./ioriver-exporter [common flags] -service-shard 1/3
+   ./ioriver-exporter [common flags] -service-shard 2/3
+   ./ioriver-exporter [common flags] -service-shard 3/3
+   ```
+   Services are sorted alphabetically by ID before sharding, so the assignment is stable across restarts.
+
+All four flags can be combined; they are evaluated in the order listed above.
+
 ## Metrics
 
 All metrics are prefixed with `ioriver_traffic_` and include the following labels:
 
-- `service_id`: IO River service ID
-- `provider`: CDN provider name
+- `serviceID`: IO River service ID
+- `serviceName`: IO River service name
+- `providerName`: CDN provider name
 
 ### Available Metrics
 
@@ -126,7 +166,38 @@ It is important to note that Prometheus, by default, continues to display the mo
 
 To ensure that queries reflect only explicitly retrieved data points, it is recommended to use the [last_over_time](https://prometheus.io/docs/prometheus/latest/querying/functions/#aggregation_over_time) function. For example:
 
-```last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])```
+```promql
+last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])
+```
+
+## Grafana Dashboards
+
+Pre-built Grafana dashboards are available in the [`dashboards/`](dashboards/) directory.
+
+### IORiver Exporter Dashboard
+
+The main dashboard (`dashboards/ioriver-exporter.json`) visualises traffic across all CDN providers for your IORiver services.
+
+**Importing the dashboard:**
+1. In Grafana, go to **Dashboards → Import**.
+2. Upload `dashboards/ioriver-exporter.json` or paste its contents.
+3. Select the `prometheus` datasource when prompted.
+4. Click **Import**.
+
+**Template variables:**
+
+| Variable | Description |
+|---|---|
+| `serviceName` | Filter by IORiver service name |
+| `providerName` | Filter by CDN provider name |
+
+**Panels:**
+- **Traffic Overview** — Request hits and bytes served over time, per provider
+- **Cache Performance** — Cached hits and bytes percentages
+- **Error Rate** — Error percentage over time
+- **Status Code Breakdown** — Hits and bytes by HTTP status code
+- **Protocol & Method** — Hits and bytes by HTTP version and method
+- **Origin Traffic** — Origin hits and bytes (cache miss traffic)
 
 ## License
 

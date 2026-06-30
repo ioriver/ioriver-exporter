@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -17,12 +18,40 @@ const (
 	serviceRefreshEnvVar   = "IORIVER_SERVICE_REFRESH"
 	trafficTimestampEnvVar = "IORIVER_TRAFFIC_TIMESTAMP"
 	verboseEnvVar          = "IORIVER_VERBOSE"
+	serviceIDsEnvVar       = "IORIVER_SERVICE_IDS"
+	serviceAllowlistEnvVar = "IORIVER_SERVICE_ALLOWLIST"
+	serviceBlocklistEnvVar = "IORIVER_SERVICE_BLOCKLIST"
+	serviceShardEnvVar     = "IORIVER_SERVICE_SHARD"
 )
 
 const (
 	defaultListen         = "127.0.0.1:8080"
 	defaultServiceRefresh = 1 * time.Minute
 )
+
+// stringSliceFlag implements flag.Value for a repeatable flag that also
+// accepts comma-separated values in a single invocation.
+// e.g. -service a,b -service c → ["a", "b", "c"]
+type stringSliceFlag struct {
+	values *[]string
+}
+
+func (f stringSliceFlag) String() string {
+	if f.values == nil {
+		return ""
+	}
+	return strings.Join(*f.values, ",")
+}
+
+func (f stringSliceFlag) Set(s string) error {
+	for _, v := range strings.Split(s, ",") {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			*f.values = append(*f.values, v)
+		}
+	}
+	return nil
+}
 
 type Settings struct {
 	Token            string
@@ -31,6 +60,10 @@ type Settings struct {
 	TrafficTimestamp bool
 	Verbose          bool
 	Version          bool
+	ServiceIDs       []string
+	ServiceAllowlist string
+	ServiceBlocklist string
+	ServiceShard     string
 }
 
 // CollectSettings collects settings from the CLI and environment
@@ -47,6 +80,11 @@ func CollectSettings(name string) (*Settings, error) {
 	fs.BoolVar(&settings.TrafficTimestamp, "traffic-timestamp", false, "time series should be created with the traffic timestamp")
 	fs.BoolVar(&settings.Verbose, "verbose", false, "print more information")
 	fs.BoolVar(&settings.Version, "version", false, "print version information and exit")
+
+	fs.Var(stringSliceFlag{&settings.ServiceIDs}, "service", fmt.Sprintf("export only this service ID (repeatable, comma-separated; overrides %s)", serviceIDsEnvVar))
+	fs.StringVar(&settings.ServiceAllowlist, "service-allowlist", "", fmt.Sprintf("export only services whose name matches this regex (env %s)", serviceAllowlistEnvVar))
+	fs.StringVar(&settings.ServiceBlocklist, "service-blocklist", "", fmt.Sprintf("exclude services whose name matches this regex (env %s)", serviceBlocklistEnvVar))
+	fs.StringVar(&settings.ServiceShard, "service-shard", "", fmt.Sprintf("shard services across exporter instances, e.g. 1/3 (env %s)", serviceShardEnvVar))
 
 	fs.Usage = getUsageFunc(fs, name)
 
@@ -99,6 +137,25 @@ func (s *Settings) supplementSettingsFromEnv() {
 		if v := os.Getenv(verboseEnvVar); v == "true" || v == "1" {
 			s.Verbose = true
 		}
+	}
+	if len(s.ServiceIDs) == 0 {
+		if ids := os.Getenv(serviceIDsEnvVar); ids != "" {
+			for _, id := range strings.Split(ids, ",") {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					s.ServiceIDs = append(s.ServiceIDs, id)
+				}
+			}
+		}
+	}
+	if s.ServiceAllowlist == "" {
+		s.ServiceAllowlist = os.Getenv(serviceAllowlistEnvVar)
+	}
+	if s.ServiceBlocklist == "" {
+		s.ServiceBlocklist = os.Getenv(serviceBlocklistEnvVar)
+	}
+	if s.ServiceShard == "" {
+		s.ServiceShard = os.Getenv(serviceShardEnvVar)
 	}
 }
 

@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"sort"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -38,6 +40,8 @@ type AllMetrics struct {
 	EdgeCachedHitsPercentage  *Metric
 	EdgeCachedBytesPercentage *Metric
 	ErrorsPercentage          *Metric
+	OriginHits                *Metric
+	OriginBytes               *Metric
 }
 
 func NewAllMetrics(labels map[string]string, timestamp int64) *AllMetrics {
@@ -52,6 +56,8 @@ func NewAllMetrics(labels map[string]string, timestamp int64) *AllMetrics {
 		CachedHitsPercentage:  &Metric{Name: "cached_hits_percentage", Help: "Cached hits percentage."},
 		CachedBytesPercentage: &Metric{Name: "cached_bytes_percentage", Help: "Cached bytes percentage."},
 		ErrorsPercentage:      &Metric{Name: "errors_percentage", Help: "Error percentage."},
+		OriginHits:            &Metric{Name: "origin_hits", Help: "Total hits sent to origin (cache miss)."},
+		OriginBytes:           &Metric{Name: "origin_bytes", Help: "Total bytes sent to origin (cache miss)."},
 	}
 	return m
 }
@@ -95,10 +101,16 @@ func (m *MainMetrics) ToPrometheusMetrics() []*prometheus.Metric {
 }
 
 func (m *MainMetrics) collectLabels() ([]string, []string) {
-	var labelNames, labelValues []string
-	for k, v := range m.labels {
+	keys := make([]string, 0, len(m.labels))
+	for k := range m.labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	labelNames := make([]string, 0, len(keys))
+	labelValues := make([]string, 0, len(keys))
+	for _, k := range keys {
 		labelNames = append(labelNames, k)
-		labelValues = append(labelValues, v)
+		labelValues = append(labelValues, m.labels[k])
 	}
 	return labelNames, labelValues
 }
@@ -122,7 +134,7 @@ func (m *MainMetrics) GetTimestamp() int64 {
 func (m *AllMetrics) ToPrometheusMetrics() []*prometheus.Metric {
 	labelNames, labelValues := m.collectLabels()
 
-	metrics := []*Metric{m.Hits, m.Bytes, m.CachedHitsPercentage, m.CachedBytesPercentage, m.ErrorsPercentage}
+	metrics := []*Metric{m.Hits, m.Bytes, m.CachedHitsPercentage, m.CachedBytesPercentage, m.ErrorsPercentage, m.OriginHits, m.OriginBytes}
 	promMetrics := m.toPrometheusMetrics(metrics, labelNames, labelValues)
 	return promMetrics
 }

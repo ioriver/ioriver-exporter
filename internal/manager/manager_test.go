@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"ioriver_exporter/api"
 	"ioriver_exporter/internal/collectors"
+	"ioriver_exporter/internal/filter"
 	"ioriver_exporter/internal/settings"
 	"ioriver_exporter/tests"
 	"strings"
@@ -33,7 +34,13 @@ func TestManager(t *testing.T) {
 		logger       = log.NewLogfmtLogger(loggerBuffer)
 		registry     = collectors.NewTrafficCollector(false, logger)
 		settings     = &settings.Settings{}
-		manager      = NewSubscriptionManager(serviceCache, iorClient, registry, settings, level.NewFilter(logger, level.AllowInfo()))
+	)
+	noopFilter, err := filter.NewServiceFilter(nil, "", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error building no-op filter: %v", err)
+	}
+	var (
+		manager = NewSubscriptionManager(serviceCache, iorClient, registry, settings, noopFilter, level.NewFilter(logger, level.AllowInfo()))
 	)
 
 	manager.Refresh()
@@ -72,7 +79,13 @@ func TestManagerStopAll(t *testing.T) {
 		logger       = log.NewLogfmtLogger(loggerBuffer)
 		registry     = collectors.NewTrafficCollector(false, logger)
 		settings     = &settings.Settings{}
-		manager      = NewSubscriptionManager(serviceCache, iorClient, registry, settings, level.NewFilter(logger, level.AllowInfo()))
+	)
+	noopFilter, err := filter.NewServiceFilter(nil, "", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error building no-op filter: %v", err)
+	}
+	var (
+		manager = NewSubscriptionManager(serviceCache, iorClient, registry, settings, noopFilter, level.NewFilter(logger, level.AllowInfo()))
 	)
 	manager.Refresh()
 	checkNbrManagedServices(t, 2, manager)
