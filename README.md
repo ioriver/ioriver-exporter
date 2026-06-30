@@ -10,7 +10,7 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 - [Installation](#installation)
 - [Authentication](#authentication)
 - [Usage and Command-Line Options](#usage-and-command-line-options)
-- [Example of Usage](#example-of-usage)
+- [Examples](#examples)
 - [Metrics](#metrics)
 - [License](#license)
 
@@ -25,10 +25,10 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 
 ### Docker
 
-Available on the [packages page](https://github.com/ioriver-dev/ioriver-exporter/pkgs/container/ioriver-exporter).
+Available on the [packages page](https://github.com/ioriver/ioriver-exporter/pkgs/container/ioriver-exporter).
 
 ```sh
-docker pull ghcr.io/ioriver-dev/ioriver-exporter
+docker pull ghcr.io/ioriver/ioriver-exporter
 ```
 
 ### From Source
@@ -83,7 +83,7 @@ OPTIONS
 Run in Docker (recommended)
 
 ```bash
-docker run --detach --publish 8080:8080 --env IORIVER_API_TOKEN=emxpdcbe7a83b537ac696442d9f82a9137542d1049d0c781 ghcr.io/ioriver-dev/ioriver-exporter
+docker run --detach --publish 8080:8080 --env IORIVER_API_TOKEN=<your-api-token> ghcr.io/ioriver/ioriver-exporter:latest
 ```
 
 Run with custom options
@@ -91,7 +91,7 @@ Run with custom options
 ```bash
 # Custom metrics address and refresh intervals
 ./ioriver-exporter \
-  -token "your-api-token" \
+  -token "<your-api-token>" \
   -listen "127.0.0.1:8080" \
   -service-refresh 30s \
   -verbose
@@ -131,8 +131,9 @@ All four flags can be combined; they are evaluated in the order listed above.
 
 All metrics are prefixed with `ioriver_traffic_` and include the following labels:
 
-- `service_id`: IO River service ID
-- `provider`: CDN provider name
+- `serviceID`: IO River service ID
+- `serviceName`: IO River service name
+- `providerName`: CDN provider name
 
 ### Available Metrics
 
@@ -164,7 +165,9 @@ It is important to note that Prometheus, by default, continues to display the mo
 
 To ensure that queries reflect only explicitly retrieved data points, it is recommended to use the [last_over_time](https://prometheus.io/docs/prometheus/latest/querying/functions/#aggregation_over_time) function. For example:
 
-```last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])```
+```promql
+last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])
+```
 
 ## License
 
