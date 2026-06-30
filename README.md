@@ -12,6 +12,7 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 - [Usage and Command-Line Options](#usage-and-command-line-options)
 - [Examples](#examples)
 - [Metrics](#metrics)
+- [Grafana Dashboards](#grafana-dashboards)
 - [License](#license)
 
 ## Features
@@ -28,7 +29,7 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 Available on the [packages page](https://github.com/ioriver/ioriver-exporter/pkgs/container/ioriver-exporter).
 
 ```sh
-docker pull ghcr.io/ioriver/ioriver-exporter
+docker pull ghcr.io/ioriver/ioriver-exporter:latest
 ```
 
 ### From Source
@@ -168,6 +169,35 @@ To ensure that queries reflect only explicitly retrieved data points, it is reco
 ```promql
 last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])
 ```
+
+## Grafana Dashboards
+
+Pre-built Grafana dashboards are available in the [`dashboards/`](dashboards/) directory.
+
+### IORiver Exporter Dashboard
+
+The main dashboard (`dashboards/ioriver-exporter.json`) visualises traffic across all CDN providers for your IORiver services.
+
+**Importing the dashboard:**
+1. In Grafana, go to **Dashboards → Import**.
+2. Upload `dashboards/ioriver-exporter.json` or paste its contents.
+3. Select the `prometheus` datasource when prompted.
+4. Click **Import**.
+
+**Template variables:**
+
+| Variable | Description |
+|---|---|
+| `serviceName` | Filter by IORiver service name |
+| `providerName` | Filter by CDN provider name |
+
+**Panels:**
+- **Traffic Overview** — Request hits and bytes served over time, per provider
+- **Cache Performance** — Cached hits and bytes percentages
+- **Error Rate** — Error percentage over time
+- **Status Code Breakdown** — Hits and bytes by HTTP status code
+- **Protocol & Method** — Hits and bytes by HTTP version and method
+- **Origin Traffic** — Origin hits and bytes (cache miss traffic)
 
 ## License
 
