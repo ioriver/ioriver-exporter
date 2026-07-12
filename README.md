@@ -8,11 +8,18 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 
 - [Features](#features)
 - [Installation](#installation)
+  - [Docker](#docker)
+  - [Kubernetes](#kubernetes)
+  - [From Source](#from-source)
 - [Authentication](#authentication)
 - [Usage and Command-Line Options](#usage-and-command-line-options)
 - [Examples](#examples)
 - [Metrics](#metrics)
 - [Grafana Dashboards](#grafana-dashboards)
+- [Integrations](#integrations)
+  - [OpenTelemetry Collector](#opentelemetry-collector)
+  - [Datadog](#datadog)
+    - [Datadog Dashboard](#datadog-dashboard)
 - [License](#license)
 
 ## Features
@@ -39,6 +46,95 @@ git clone https://github.com/ioriver-dev/ioriver-exporter.git
 cd ioriver-exporter
 go build -o ioriver-exporter ./cmd/ioriver-exporter
 ```
+
+### Kubernetes
+
+The example below deploys ioriver-exporter as a `Deployment` with a `ClusterIP` Service. The Service is required when scraping via the [OpenTelemetry Collector](#opentelemetry-collector) or [Datadog](#datadog) — it provides a stable DNS endpoint (`ioriver-exporter.<namespace>.svc.cluster.local`).
+
+The API token is read from a Kubernetes Secret. Create it before deploying:
+
+```bash
+kubectl create secret generic ioriver-exporter \
+  --from-literal=IORIVER_API_TOKEN=<your-api-token> \
+  -n <namespace>
+```
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ioriver-exporter
+  namespace: <namespace>
+  labels:
+    app: ioriver-exporter
+spec:
+  selector:
+    matchLabels:
+      app: ioriver-exporter
+  template:
+    metadata:
+      labels:
+        app: ioriver-exporter
+    spec:
+      containers:
+        - name: ioriver-exporter
+          image: ghcr.io/ioriver/ioriver-exporter:latest
+          imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: IORIVER_LISTEN
+              value: "0.0.0.0:8080"
+            - name: IORIVER_TRAFFIC_TIMESTAMP
+              value: "true"
+            # Optional: restrict to specific services by name regex
+            # - name: IORIVER_SERVICE_ALLOWLIST
+            #   value: "^production.*"
+          envFrom:
+            - secretRef:
+                name: ioriver-exporter   # must contain IORIVER_API_TOKEN
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ioriver-exporter
+  namespace: <namespace>
+  labels:
+    app: ioriver-exporter
+spec:
+  selector:
+    app: ioriver-exporter
+  ports:
+    - name: metrics
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+```
+
+Once deployed, the metrics endpoint is reachable at:
+- **Within the cluster:** `http://ioriver-exporter.<namespace>.svc.cluster.local/metrics`
+- **Port-forward for local testing:** `kubectl port-forward svc/ioriver-exporter 8080:80 -n <namespace>`
 
 ## Authentication
 
@@ -198,6 +294,111 @@ The main dashboard (`dashboards/ioriver-exporter.json`) visualises traffic acros
 - **Status Code Breakdown** — Hits and bytes by HTTP status code
 - **Protocol & Method** — Hits and bytes by HTTP version and method
 - **Origin Traffic** — Origin hits and bytes (cache miss traffic)
+
+## Integrations
+
+### OpenTelemetry Collector
+
+You can forward IORiver metrics to any OTel-compatible backend (Grafana Cloud, Honeycomb, New Relic, Datadog OTLP endpoint, ClickHouse via HyperDX/ClickStack, etc.) by running the exporter alongside an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/).
+
+**Important:** enable `IORIVER_TRAFFIC_TIMESTAMP=true` (or `-traffic-timestamp`) so the exporter embeds the actual CDN data timestamp in each metric. Without this, all metrics will be stamped with the scrape time, which masks the provider-specific delays described in [Data Delays](#data-delays).
+
+Add the following to your OTel Collector configuration:
+
+```yaml
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: ioriver-exporter
+          scrape_interval: 60s        # matches the IORiver API refresh cadence
+          scrape_timeout: 30s
+          honor_timestamps: true      # preserves CDN data timestamps set by -traffic-timestamp
+          static_configs:
+            # Use the pod IP:8080 for direct scraping, or the Service DNS:80 if using a ClusterIP Service
+            - targets: ['<ioriver-exporter-host>:8080']
+
+exporters:
+  otlphttp:
+    endpoint: https://<your-otel-backend>
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      exporters: [otlphttp]
+```
+
+All `ioriver_traffic_*` metrics are of type `Gauge` and will be stored in your backend's gauge metric table.
+
+### Datadog
+
+#### Kubernetes (recommended)
+
+On Kubernetes, use [Datadog Autodiscovery (AD v2)](https://docs.datadoghq.com/containers/kubernetes/prometheus/?tab=kubernetesadv2) to configure the OpenMetrics check via pod annotations — no separate config file needed. The Datadog Agent detects the annotation and starts scraping automatically.
+
+Add the following annotation to the ioriver-exporter pod template:
+
+```yaml
+annotations:
+  ad.datadoghq.com/ioriver-exporter.checks: |
+    {
+      "openmetrics": {
+        "instances": [
+          {
+            "openmetrics_endpoint": "http://%%host%%:%%port%%/metrics",
+            "namespace": "ioriver",
+            "metrics": ["ioriver_traffic_.*"],
+            "honor_timestamps": true
+          }
+        ]
+      }
+    }
+```
+
+`%%host%%` and `%%port%%` are Datadog template variables resolved automatically at scrape time. The container name in the annotation key (`ioriver-exporter`) must match the actual container name in the pod spec.
+
+> **Note:** Requires Datadog Agent v7.36+ for AD v2 annotations. For older agents, use the [AD v1 format](https://docs.datadoghq.com/containers/kubernetes/prometheus/?tab=kubernetesv1).
+
+#### Non-Kubernetes
+
+For standalone Datadog Agent deployments, create a conf file at `/etc/datadog-agent/conf.d/ioriver_exporter.d/conf.yaml`:
+
+```yaml
+init_config:
+
+instances:
+  - openmetrics_endpoint: http://<ioriver-exporter-host>:8080/metrics
+    namespace: ioriver
+    metrics:
+      - ioriver_traffic_.*
+    honor_timestamps: true
+```
+
+Restart the agent and verify: `datadog-agent check ioriver_exporter`
+
+#### Notes
+
+- All metrics appear in Datadog under the prefix `ioriver.*` (e.g. `ioriver.ioriver_traffic_bytes`)
+- Enable `-traffic-timestamp` on the exporter — `honor_timestamps: true` in the check config preserves CDN data timestamps, so metrics are correctly placed on the time axis despite provider-specific delays
+
+#### Datadog Dashboard
+
+A pre-built Datadog dashboard is available at [`dashboards/datadog/ioriver-exporter.json`](dashboards/datadog/ioriver-exporter.json). It covers:
+
+- **Traffic Overview** — hits and bytes per service / provider
+- **Cache Performance** — cache hit rate and cached bytes percentage
+- **Error Rate** — error percentage with warning (1%) and critical (5%) markers
+- **Status Code Breakdown** — hits and bytes by HTTP status code
+- **Protocol & Method** — hits by HTTP version and HTTP method
+- **Origin Traffic** — origin hits and bytes per service / provider
+
+**Importing the dashboard:**
+1. In Datadog, go to **Dashboards → New Dashboard → Import dashboard JSON**.
+2. Paste the contents of `dashboards/datadog/ioriver-exporter.json`, or drag-and-drop the file.
+3. Click **Yes, Replace** to confirm.
+
+The `serviceName` and `providerName` template variables are pre-configured and will auto-populate with the values from your own metrics once data is flowing.
 
 ## License
 
