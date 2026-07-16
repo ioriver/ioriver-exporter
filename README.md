@@ -16,10 +16,11 @@ A Prometheus exporter exposing metrics and traffic statistics of [IORiver](https
 - [Examples](#examples)
 - [Metrics](#metrics)
 - [Grafana Dashboards](#grafana-dashboards)
-- [Integrations](#integrations)
-  - [OpenTelemetry Collector](#opentelemetry-collector)
-  - [Datadog](#datadog)
-    - [Datadog Dashboard](#datadog-dashboard)
+- [Integrating with OpenTelemetry Collector](#integrating-with-opentelemetry-collector)
+- [Integrating with Datadog](#integrating-with-datadog)
+  - [IO River exporter running in Kubernetes](#io-river-exporter-running-in-kubernetes)
+  - [IO River exporter not running in Kubernetes](#io-river-exporter-not-running-in-kubernetes)
+  - [Datadog Dashboard](#datadog-dashboard)
 - [License](#license)
 
 ## Features
@@ -51,13 +52,15 @@ go build -o ioriver-exporter ./cmd/ioriver-exporter
 
 The example below deploys ioriver-exporter as a `Deployment` with a `ClusterIP` Service. The Service is required when scraping via the [OpenTelemetry Collector](#opentelemetry-collector) or [Datadog](#datadog) — it provides a stable DNS endpoint (`ioriver-exporter.<namespace>.svc.cluster.local`).
 
-The API token is read from a Kubernetes Secret. Create it before deploying:
+The API token is read from a Kubernetes Secret. Create the secret before deploying:
 
 ```bash
 kubectl create secret generic ioriver-exporter \
   --from-literal=IORIVER_API_TOKEN=<your-api-token> \
   -n <namespace>
 ```
+
+Create a yaml file, and then deploy it:
 
 ```yaml
 apiVersion: apps/v1
@@ -295,9 +298,7 @@ The main dashboard (`dashboards/ioriver-exporter.json`) visualises traffic acros
 - **Protocol & Method** — Hits and bytes by HTTP version and method
 - **Origin Traffic** — Origin hits and bytes (cache miss traffic)
 
-## Integrations
-
-### OpenTelemetry Collector
+## Integrating with OpenTelemetry Collector
 
 You can forward IORiver metrics to any OTel-compatible backend (Grafana Cloud, Honeycomb, New Relic, Datadog OTLP endpoint, ClickHouse via HyperDX/ClickStack, etc.) by running the exporter alongside an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/).
 
@@ -331,9 +332,11 @@ service:
 
 All `ioriver_traffic_*` metrics are of type `Gauge` and will be stored in your backend's gauge metric table.
 
-### Datadog
+## Integrating with Datadog
 
-#### Kubernetes (recommended)
+Connecting the IO River exporter to Datadog depends on where the exporter runs.
+
+### IO River exporter running in Kubernetes 
 
 On Kubernetes, use [Datadog Autodiscovery (AD v2)](https://docs.datadoghq.com/containers/kubernetes/prometheus/?tab=kubernetesadv2) to configure the OpenMetrics check via pod annotations — no separate config file needed. The Datadog Agent detects the annotation and starts scraping automatically.
 
@@ -360,7 +363,7 @@ annotations:
 
 > **Note:** Requires Datadog Agent v7.36+ for AD v2 annotations. For older agents, use the [AD v1 format](https://docs.datadoghq.com/containers/kubernetes/prometheus/?tab=kubernetesv1).
 
-#### Non-Kubernetes
+### IO River exporter not running in Kubernetes
 
 For standalone Datadog Agent deployments, create a conf file at `/etc/datadog-agent/conf.d/ioriver_exporter.d/conf.yaml`:
 
@@ -377,12 +380,12 @@ instances:
 
 Restart the agent and verify: `datadog-agent check ioriver_exporter`
 
-#### Notes
+### Notes
 
 - All metrics appear in Datadog under the prefix `ioriver.*` (e.g. `ioriver.ioriver_traffic_bytes`)
 - Enable `-traffic-timestamp` on the exporter — `honor_timestamps: true` in the check config preserves CDN data timestamps, so metrics are correctly placed on the time axis despite provider-specific delays
 
-#### Datadog Dashboard
+### Datadog Dashboard
 
 A pre-built Datadog dashboard is available at [`dashboards/datadog/ioriver-exporter.json`](dashboards/datadog/ioriver-exporter.json). It covers:
 
