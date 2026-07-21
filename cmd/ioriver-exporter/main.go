@@ -18,6 +18,7 @@ import (
 
 	"ioriver_exporter/internal/cache"
 	"ioriver_exporter/internal/collectors"
+	"ioriver_exporter/internal/filter"
 	"ioriver_exporter/internal/manager"
 	exporter_settings "ioriver_exporter/internal/settings"
 )
@@ -44,6 +45,13 @@ func main() {
 	logger = level.NewFilter(logger, getLogLevel(settings.Verbose))
 
 	if !settings.Validate(logger) {
+		os.Exit(1)
+	}
+
+	// build service filter from flag settings
+	svcFilter, err := filter.NewServiceFilter(settings.ServiceIDs, settings.ServiceAllowlist, settings.ServiceBlocklist, settings.ServiceShard)
+	if err != nil {
+		level.Error(logger).Log("main", "invalid service filter", "err", err)
 		os.Exit(1)
 	}
 
@@ -78,7 +86,7 @@ func main() {
 	server := http.Server{Addr: settings.Listen}
 
 	ticker := time.NewTicker(settings.ServiceRefresh)
-	manager := manager.NewSubscriptionManager(serviceCache, iorClient, collector, settings, logger)
+	manager := manager.NewSubscriptionManager(serviceCache, iorClient, collector, settings, svcFilter, logger)
 	manager.Refresh()
 
 	var wg sync.WaitGroup

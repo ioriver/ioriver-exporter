@@ -26,8 +26,8 @@ func TestToPrometheusMetrics(t *testing.T) {
 	promMetrics := m.ToPrometheusMetrics()
 
 	// Verify the number of metrics
-	if len(promMetrics) != 5 {
-		t.Errorf("expected 5 metrics, got %d", len(promMetrics))
+	if len(promMetrics) != 7 {
+		t.Errorf("expected 7 metrics, got %d", len(promMetrics))
 	}
 
 	// Helper function to extract metric details
@@ -60,6 +60,8 @@ func TestToPrometheusMetrics(t *testing.T) {
 		"ioriver_traffic_cached_hits_percentage":  85.5,
 		"ioriver_traffic_cached_bytes_percentage": 90.2,
 		"ioriver_traffic_errors_percentage":       0.5,
+		"ioriver_traffic_origin_hits":             0,
+		"ioriver_traffic_origin_bytes":            0,
 	}
 
 	foundMetrics := make(map[string]bool)

@@ -24,20 +24,22 @@ const metricsLookBack = time.Duration(-40) * time.Minute
 // Subscriber polls IORiver traffic statistics endpoints for a given service
 // and keep it as Prometheus metrics.
 type Subscriber struct {
-	iorClient api.IORiverClient
-	serviceId string
-	metrics   []metrics.Metrics
-	logger    log.Logger
+	iorClient   api.IORiverClient
+	serviceId   string
+	serviceName string
+	metrics     []metrics.Metrics
+	logger      log.Logger
 
 	mtx sync.RWMutex
 }
 
-func NewSubscriber(iorClient api.IORiverClient, serviceId string, logger log.Logger) *Subscriber {
+func NewSubscriber(iorClient api.IORiverClient, serviceId string, serviceName string, logger log.Logger) *Subscriber {
 	return &Subscriber{
-		iorClient: iorClient,
-		serviceId: serviceId,
-		metrics:   make([]metrics.Metrics, 0),
-		logger:    logger,
+		iorClient:   iorClient,
+		serviceId:   serviceId,
+		serviceName: serviceName,
+		metrics:     make([]metrics.Metrics, 0),
+		logger:      logger,
 	}
 }
 
@@ -140,7 +142,7 @@ func (s *Subscriber) convertStatsToMetrics(traffic *ioriver.Traffic, providerNam
 		return metric.ProviderName == providerName && metricTimestamp == timestamp
 	})
 
-	labels := map[string]string{"serviceID": s.serviceId, "providerName": abbreviationToProviderName(providerName)}
+	labels := map[string]string{"serviceID": s.serviceId, "serviceName": s.serviceName, "providerName": abbreviationToProviderName(providerName)}
 	level.Debug(s.logger).Log("service_id", s.serviceId, "provider", providerName, "time", timestamp, "subscriber", "update")
 	providerMetrics := make([]metrics.Metrics, 0, len(values))
 
@@ -152,6 +154,8 @@ func (s *Subscriber) convertStatsToMetrics(traffic *ioriver.Traffic, providerNam
 		metrics.CachedHitsPercentage.Value = stat.CachedHitsPercentage
 		metrics.CachedBytesPercentage.Value = stat.CachedBytesPercentage
 		metrics.ErrorsPercentage.Value = stat.ErrorsPercentage
+		metrics.OriginHits.Value = float64(stat.OriginHits)
+		metrics.OriginBytes.Value = float64(stat.OriginBytes)
 
 		providerMetrics = append(providerMetrics, metrics)
 	}
@@ -175,7 +179,7 @@ func (s *Subscriber) convertAdvancedStatsToMetrics(
 	for _, value := range values {
 		stat := value.Metrics
 		labels := map[string]string{
-			"serviceID": s.serviceId, "providerName": fullProviderName,
+			"serviceID": s.serviceId, "serviceName": s.serviceName, "providerName": fullProviderName,
 			"advancedMetricValue": *value.AdvancedMetricValue,
 		}
 		var advancedMetrics *metrics.MainMetrics
@@ -241,11 +245,12 @@ func getAllProviderNames(stats []ioriver.ServiceStats, serviceId string) []strin
 
 func abbreviationToProviderName(name string) string {
 	mapping := map[string]string{
-		"fs":    "Fastly",
-		"cf":    "Cloudflare",
-		"cfrnt": "CloudFront",
-		"azcdn": "Azure CDN",
-		"vcdn":  "vCDN",
+		"fs":     "Fastly",
+		"cf":     "Cloudflare",
+		"cfrnt":  "CloudFront",
+		"azcdn":  "Azure CDN",
+		"vcdn":   "vCDN",
+		"akamai": "Akamai",
 	}
 	v, ok := mapping[name]
 	if ok {
