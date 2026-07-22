@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"ioriver_exporter/api"
 	"ioriver_exporter/internal/collectors"
-	"ioriver_exporter/internal/filter"
 	"ioriver_exporter/internal/settings"
 	"ioriver_exporter/tests"
 	"strings"
@@ -35,37 +34,29 @@ func TestManager(t *testing.T) {
 		registry     = collectors.NewTrafficCollector(false, logger)
 		settings     = &settings.Settings{}
 	)
-	noopFilter, err := filter.NewServiceFilter(nil, "", "", "")
-	if err != nil {
-		t.Fatalf("unexpected error building no-op filter: %v", err)
-	}
 	var (
-		manager = NewSubscriptionManager(serviceCache, iorClient, registry, settings, noopFilter, level.NewFilter(logger, level.AllowInfo()))
+		manager = NewSubscriptionManager(serviceCache, iorClient, registry, settings, level.NewFilter(logger, level.AllowInfo()))
 	)
 
-	manager.Refresh()
-	checkNbrManagedServices(t, 1, manager)
+	manager.StartSubscription()
+	checkSharedSubscriberRunning(t, manager, true)
 
 	serviceCache.services = []ioriver.Service{{Id: "a", Name: "name_a"}, {Id: "b", Name: "name_b"}}
 	manager.Refresh()
-	checkNbrManagedServices(t, 2, manager)
+	checkSharedSubscriberRunning(t, manager, true)
 
 	serviceCache.services = []ioriver.Service{}
 	manager.Refresh()
-	checkNbrManagedServices(t, 0, manager)
+	checkSharedSubscriberRunning(t, manager, true)
+
+	manager.StopSubscription()
+	checkSharedSubscriberRunning(t, manager, false)
 
 	exp := []string{
-		`level=debug collector="register metrics provider for a"`,
-		`level=debug collector="register metrics provider for b"`,
-		`level=debug collector="unregister metrics provider for a"`,
-		`level=debug collector="unregister metrics provider for b"`,
-
-		`level=info service_id=a service_name=name_a subscriber=start`,
-
-		`level=info service_id=b service_name=name_b subscriber=start`,
-
-		`level=info service_id=a service_name=name_a subscriber=stop`,
-		`level=info service_id=b service_name=name_b subscriber=stop`,
+		`level=info subscriber=start`,
+		`level=debug collector="register metrics provider"`,
+		`level=info subscriber=stop`,
+		`level=debug collector="unregister metrics provider"`,
 	}
 	act := strings.Split(strings.TrimSpace(loggerBuffer.String()), "\n")
 	tests.AssertStringSliceEqual(t, exp, act)
@@ -80,37 +71,29 @@ func TestManagerStopAll(t *testing.T) {
 		registry     = collectors.NewTrafficCollector(false, logger)
 		settings     = &settings.Settings{}
 	)
-	noopFilter, err := filter.NewServiceFilter(nil, "", "", "")
-	if err != nil {
-		t.Fatalf("unexpected error building no-op filter: %v", err)
-	}
 	var (
-		manager = NewSubscriptionManager(serviceCache, iorClient, registry, settings, noopFilter, level.NewFilter(logger, level.AllowInfo()))
+		manager = NewSubscriptionManager(serviceCache, iorClient, registry, settings, level.NewFilter(logger, level.AllowInfo()))
 	)
-	manager.Refresh()
-	checkNbrManagedServices(t, 2, manager)
+	manager.StartSubscription()
+	checkSharedSubscriberRunning(t, manager, true)
 
-	manager.StopAll()
-	checkNbrManagedServices(t, 0, manager)
+	manager.StopSubscription()
+	checkSharedSubscriberRunning(t, manager, false)
 
 	exp := []string{
-		`level=debug collector="register metrics provider for a"`,
-		`level=debug collector="register metrics provider for b"`,
-		`level=debug collector="unregister metrics provider for a"`,
-		`level=debug collector="unregister metrics provider for b"`,
-		`level=info service_id=a service_name=name_a subscriber=start`,
-		`level=info service_id=b service_name=name_b subscriber=start`,
-
-		`level=info service_id=a service_name=name_a subscriber=stop`,
-		`level=info service_id=b service_name=name_b subscriber=stop`,
+		`level=info subscriber=start`,
+		`level=debug collector="register metrics provider"`,
+		`level=info subscriber=stop`,
+		`level=debug collector="unregister metrics provider"`,
 	}
 	act := strings.Split(strings.TrimSpace(loggerBuffer.String()), "\n")
 	tests.AssertStringSliceEqual(t, exp, act)
 }
 
-func checkNbrManagedServices(t *testing.T, exp int, manager *SubscriptionManager) {
+func checkSharedSubscriberRunning(t *testing.T, manager *SubscriptionManager, expected bool) {
 	t.Helper()
-	if len(manager.managed) != exp {
-		t.Errorf("unexpected number of manages services %d", len(manager.managed))
+	running := manager.subscriber != nil && manager.irq != nil
+	if running != expected {
+		t.Errorf("unexpected shared subscriber running state: expected %v got %v", expected, running)
 	}
 }

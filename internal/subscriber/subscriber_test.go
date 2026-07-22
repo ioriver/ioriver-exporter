@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"ioriver_exporter/api"
 	"ioriver_exporter/tests"
 	"strings"
 	"testing"
@@ -20,8 +21,10 @@ func TestSubscriber(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(traffic)
 	)
+	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
 	startStopSubscription(t, subscriber)
 
@@ -44,12 +47,14 @@ func TestSubscriberFailedToGetStat(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: "not_valid"}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(traffic)
 	)
+	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
 	startStopSubscription(t, subscriber)
 
-	const exp = "level=warn subscriber=\"failed to get traffic for service 15e72be2-cb5a-4451-90a7-73e72553eb2a:"
+	const exp = "level=warn subscriber=\"failed to get traffic for services ["
 	act := strings.TrimSpace(loggerBuffer.String())
 	if !strings.Contains(act, exp) {
 		t.Error("unexpected warning")
@@ -68,8 +73,10 @@ func TestSubscriberStatHasNoPoints(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: resp}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(traffic)
 	)
+	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
 	startStopSubscription(t, subscriber)
 
@@ -85,8 +92,10 @@ func TestGetPrometheusMetrics(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		subscriber   = NewSubscriber(iorClient, tests.ServiceId, "ioriver", level.NewFilter(logger, level.AllowDebug()))
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
+		subscriber   = NewSubscriber(traffic)
 	)
+	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
 	// Update metrics by starting and stopping subscription
 	startStopSubscription(t, subscriber)
@@ -103,7 +112,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 		t.Errorf("expected timestamp %d, got %d", expectedTimestamp, promMetrics[0].Timestamp)
 	}
 
-	expectedMetricCount := 26
+	expectedMetricCount := 20
 	if len(promMetrics) != expectedMetricCount {
 		t.Errorf("expected %d Prometheus metrics, got %d", expectedMetricCount, len(promMetrics))
 	}
@@ -141,6 +150,30 @@ func TestGetPrometheusMetrics(t *testing.T) {
 	}
 	if !foundOriginBytes {
 		t.Error("expected ioriver_traffic_origin_bytes metric to be exported")
+	}
+}
+
+func TestSubscriberEmptyServiceListClearsMetrics(t *testing.T) {
+	var (
+		iorClient  = &tests.FakeIorClient{}
+		traffic    = NewIORiverTraffic(iorClient, log.NewNopLogger())
+		subscriber = NewSubscriber(traffic)
+	)
+
+	// Populate metrics with a valid service.
+	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
+	startStopSubscription(t, subscriber)
+
+	if len(subscriber.GetPrometheusMetrics()) == 0 {
+		t.Fatal("expected metrics after subscribing with a service")
+	}
+
+	// Remove all services and run another update cycle.
+	subscriber.UpdateServices(nil)
+	startStopSubscription(t, subscriber)
+
+	if got := subscriber.GetPrometheusMetrics(); len(got) != 0 {
+		t.Errorf("expected stale metrics to be cleared after service list becomes empty, got %d metrics", len(got))
 	}
 }
 

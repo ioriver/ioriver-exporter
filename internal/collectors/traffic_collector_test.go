@@ -64,15 +64,14 @@ func TestTrafficCollectorRegisterUnregisterMetricsProvider(t *testing.T) {
 	logger = level.NewFilter(logger, level.AllowDebug())
 	collector := NewTrafficCollector(false, logger)
 
-	serviceId := "test-service-123"
 	provider := &FakeMetricsProvider{}
 
 	// Register first
-	collector.RegisterMetricsProvider(serviceId, provider)
+	collector.RegisterMetricsProvider(provider)
 
 	// Verify it exists
 	collector.mtx.RLock()
-	_, exists := collector.metricsProviders[serviceId]
+	exists := collector.metricsProvider != nil
 	collector.mtx.RUnlock()
 
 	if !exists {
@@ -83,10 +82,10 @@ func TestTrafficCollectorRegisterUnregisterMetricsProvider(t *testing.T) {
 	logBuffer.Reset()
 
 	// Unregister
-	collector.UnregisterMetricsProvider(serviceId)
+	collector.UnregisterMetricsProvider()
 
 	// Verify it's removed
-	_, exists = collector.metricsProviders[serviceId]
+	exists = collector.metricsProvider != nil
 
 	if exists {
 		t.Error("provider should not exist after unregister")
@@ -105,7 +104,7 @@ func TestTrafficCollectorCollectWithTimestamp(t *testing.T) {
 	}
 
 	provider := &FakeMetricsProvider{metricsToReturn: testMetrics}
-	collector.RegisterMetricsProvider("service-1", provider)
+	collector.RegisterMetricsProvider(provider)
 
 	// Collect metrics
 	metricChan := make(chan prometheus.Metric, 10)
@@ -136,7 +135,7 @@ func TestTrafficCollectorCollectWithTimestamp(t *testing.T) {
 	}
 }
 
-func TestTrafficCollectorCollectMultipleProviders(t *testing.T) {
+func TestTrafficCollectorCollectLatestProviderWins(t *testing.T) {
 	logger := log.NewNopLogger()
 	collector := NewTrafficCollector(false, logger)
 
@@ -156,21 +155,21 @@ func TestTrafficCollectorCollectMultipleProviders(t *testing.T) {
 		},
 	}
 
-	collector.RegisterMetricsProvider("service-1", provider1)
-	collector.RegisterMetricsProvider("service-2", provider2)
+	collector.RegisterMetricsProvider(provider1)
+	collector.RegisterMetricsProvider(provider2)
 
 	// Collect metrics
 	metricChan := make(chan prometheus.Metric, 10)
 	collector.Collect(metricChan)
 	close(metricChan)
 
-	// Verify total count
+	// Verify total count. In single-provider mode, latest registration wins.
 	count := 0
 	for range metricChan {
 		count++
 	}
 
-	expectedCount := len(provider1.metricsToReturn) + len(provider2.metricsToReturn)
+	expectedCount := len(provider2.metricsToReturn)
 	if count != expectedCount {
 		t.Errorf("expected %d total metrics, got %d", expectedCount, count)
 	}

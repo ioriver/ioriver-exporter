@@ -60,9 +60,10 @@ func main() {
 
 	// create the service cache and refresh it
 	level.Info(logger).Log("main", "start polling", "interval_sec", settings.ServiceRefresh)
-	serviceCache := cache.NewServiceCache(iorClient, logger)
+	serviceCache := cache.NewServiceCache(iorClient, svcFilter, logger)
 	if err = serviceCache.Refresh(); err != nil {
-		level.Warn(logger).Log("main", "failed to init the service cache")
+		level.Error(logger).Log("main", "failed to init the service cache", "err", err)
+		os.Exit(1)
 	}
 
 	// context for graceful shutdown
@@ -86,8 +87,8 @@ func main() {
 	server := http.Server{Addr: settings.Listen}
 
 	ticker := time.NewTicker(settings.ServiceRefresh)
-	manager := manager.NewSubscriptionManager(serviceCache, iorClient, collector, settings, svcFilter, logger)
-	manager.Refresh()
+	manager := manager.NewSubscriptionManager(serviceCache, iorClient, collector, settings, logger)
+	manager.StartSubscription()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -104,7 +105,7 @@ func main() {
 				manager.Refresh()
 			case <-ctx.Done():
 				level.Info(logger).Log("main", "shutting down gracefully...")
-				manager.StopAll()
+				manager.StopSubscription()
 				err = server.Shutdown(ctx)
 				if err != nil {
 					level.Info(logger).Log("main", "failed to shutdown the service gracefully")

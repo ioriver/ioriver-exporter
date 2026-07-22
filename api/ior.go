@@ -12,5 +12,5 @@ type ServiceInfo struct {
 type IORiverClient interface {
 	ListServices() ([]ioriver.Service, error)
 	GetTraffic(serviceId string, startTime int64, endTime int64, granularity ioriver.Granularity) (*ioriver.Traffic, error)
-	GetAdvancedTraffic(serviceId string, startTime int64, endTime int64, granularity ioriver.Granularity, advancedMetric ioriver.AdvancedMetric) (*ioriver.Traffic, error)
+	RetrieveTrafficOvertime(serviceIds []string, startTime int64, endTime int64, granularity ioriver.Granularity, advancedMetrics []ioriver.AdvancedMetric) (*ioriver.Traffic, error)
 }
