@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"ioriver_exporter/api"
 	"ioriver_exporter/internal/collectors"
-	"ioriver_exporter/internal/filter"
 	"ioriver_exporter/internal/subscriber"
 	"sync"
 
@@ -23,13 +22,9 @@ type ServiceIdProvider interface {
 // MetricProviderRegistry is a contract for registering and unregistering metrics providers
 // for IORiver services.
 type MetricProviderRegistry interface {
-	RegisterMetricsProvider(serviceId string, provider collectors.MetricsProvider)
-	UnregisterMetricsProvider(serviceId string)
+	RegisterMetricsProvider(provider collectors.MetricsProvider)
+	UnregisterMetricsProvider()
 }
-
-// managed is a map that links services
-// with a struct that can interrupt the service subscription
-type managed = map[api.ServiceInfo]interrupt
 
 // SubscriptionManager creates and interrupts subscriptions for IORiver service metrics.
 type SubscriptionManager struct {
@@ -37,11 +32,11 @@ type SubscriptionManager struct {
 	iorClient         api.IORiverClient
 	registry          MetricProviderRegistry
 	settings          *exporter_settings.Settings
-	filter            *filter.ServiceFilter
 	logger            log.Logger
 
-	mtx     sync.RWMutex
-	managed managed
+	mtx        sync.RWMutex
+	subscriber *subscriber.Subscriber
+	irq        *interrupt
 }
 
 // the value type of the managed services map
@@ -56,7 +51,6 @@ func NewSubscriptionManager(
 	iorClient api.IORiverClient,
 	registry MetricProviderRegistry,
 	settings *exporter_settings.Settings,
-	svcFilter *filter.ServiceFilter,
 	logger log.Logger) *SubscriptionManager {
 
 	m := &SubscriptionManager{
@@ -64,72 +58,66 @@ func NewSubscriptionManager(
 		iorClient:         iorClient,
 		registry:          registry,
 		settings:          settings,
-		filter:            svcFilter,
 		logger:            logger,
-	}
-	if m.filter == nil {
-		m.filter, _ = filter.NewServiceFilter(nil, "", "", "")
 	}
 	return m
 }
 
 // Refresh refreshes subscriptions based on the list of services in the cache.
-// It creates subscriptions for each service and cancels then when the services is not in the cache anymore.
 func (m *SubscriptionManager) Refresh() {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	newManaged := managed{}
-	for _, service := range m.filter.Apply(m.serviceIdProvider.GetServicesInfo()) {
-		if irq, ok := m.managed[service]; ok {
-			level.Debug(m.logger).Log(toLogKeyVals(service, "manager", "managed")...)
-			newManaged[service] = irq
-			delete(m.managed, service)
-		} else {
-			level.Info(m.logger).Log(toLogKeyVals(service, "subscriber", "start")...)
-			newManaged[service] = m.spawn(service.Id, service.Name)
-		}
+	if m.subscriber == nil {
+		level.Warn(m.logger).Log("subscriber", "not started yet, skipping refresh")
+		return
 	}
 
-	// stop polling not existing services anymore
-	m.stopAll(m.managed)
-
-	m.managed = newManaged
+	services := m.serviceIdProvider.GetServicesInfo()
+	m.subscriber.UpdateServices(services)
 }
 
-// Gracefully stop all managed subscriptions.
-func (m *SubscriptionManager) StopAll() {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-	m.stopAll(m.managed)
-}
-
-// stop all given managed subscriptions
-func (m *SubscriptionManager) stopAll(managed managed) {
-	for service, irq := range managed {
-		level.Info(m.logger).Log(toLogKeyVals(service, "subscriber", "stop")...)
-		irq.cancel()
-		err := <-irq.done
-		delete(m.managed, service)
-		m.registry.UnregisterMetricsProvider(service.Id)
-		level.Debug(m.logger).Log(toLogKeyVals(service, "interrupt", err)...)
+// StartSubscription initializes the shared subscriber for all services
+// and starts the subscription in a separate goroutine.
+func (m *SubscriptionManager) StartSubscription() {
+	if m.subscriber != nil {
+		level.Warn(m.logger).Log("subscriber", "already started, skipping")
+		return
 	}
-}
 
-// spawn a subroutine for a new subscriber
-func (m *SubscriptionManager) spawn(serviceId string, serviceName string) interrupt {
+	level.Info(m.logger).Log("subscriber", "start")
 	var (
-		subscriber  = subscriber.NewSubscriber(m.iorClient, serviceId, serviceName, m.logger)
+		traffic     = subscriber.NewIORiverTraffic(m.iorClient, m.logger)
+		subscriber  = subscriber.NewSubscriber(traffic)
 		ctx, cancel = context.WithCancel(context.Background())
 		done        = make(chan error, 1)
 	)
-	m.registry.RegisterMetricsProvider(serviceId, subscriber)
-	go func() { done <- fmt.Errorf("realtime: %w", subscriber.Subscribe(ctx)) }()
 
-	return interrupt{cancel, done}
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	m.subscriber = subscriber
+	services := m.serviceIdProvider.GetServicesInfo()
+	m.subscriber.UpdateServices(services) // initialize the subscriber with the current list of services
+	m.registry.RegisterMetricsProvider(subscriber)
+	go func() { done <- fmt.Errorf("subscriber: %w", subscriber.Subscribe(ctx)) }()
+	m.irq = &interrupt{cancel, done}
 }
 
-func toLogKeyVals(service api.ServiceInfo, vals ...any) []any {
-	params := []any{"service_id", service.Id, "service_name", service.Name}
-	return append(params, vals...)
+// Gracefully stop the subscription.
+func (m *SubscriptionManager) StopSubscription() {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	if m.irq == nil {
+		return
+	}
+
+	level.Info(m.logger).Log("subscriber", "stop")
+	m.irq.cancel()
+	err := <-m.irq.done
+	level.Debug(m.logger).Log("interrupt", err)
+	m.registry.UnregisterMetricsProvider()
+	m.irq = nil
+	m.subscriber = nil
 }

@@ -23,19 +23,6 @@ func (c *FakeIorClient) GetTraffic(serviceId string, startTime int64, endTime in
 	return c.getTraffic(trafficOvertimeResponse)
 }
 
-func (c *FakeIorClient) GetAdvancedTraffic(serviceId string, startTime int64, endTime int64, granularity ioriver.Granularity, advancedMetric ioriver.AdvancedMetric) (*ioriver.Traffic, error) {
-	traffic, err := c.getTraffic(trafficAdvancedResponse)
-	if err != nil {
-		return nil, err
-	}
-	if c.TrafficResponseJson == "" {
-		name := advancedMetric.String()
-		traffic.ServiceStats[0].Points[0].Metrics[0].AdvancedMetricName = &name
-		traffic.ServiceStats[0].Points[0].Metrics[1].AdvancedMetricName = &name
-	}
-	return traffic, err
-}
-
 func (c *FakeIorClient) getTraffic(trafficResponseJson string) (*ioriver.Traffic, error) {
 	var response []byte
 	if c.TrafficResponseJson == "" {
@@ -49,6 +36,10 @@ func (c *FakeIorClient) getTraffic(trafficResponseJson string) (*ioriver.Traffic
 		return nil, fmt.Errorf("failed to load JSON: %w", err)
 	}
 	return &traffic, nil
+}
+
+func (c *FakeIorClient) RetrieveTrafficOvertime(serviceIds []string, startTime int64, endTime int64, granularity ioriver.Granularity, advancedMetrics []ioriver.AdvancedMetric) (*ioriver.Traffic, error) {
+	return c.getTraffic(trafficOvertimeResponse)
 }
 
 // fake responses
@@ -107,29 +98,12 @@ const trafficOvertimeResponse = `{
 								"cachedBytesPercentage": 92.0581,
 								"errorsPercentage": 2.2524712
 							}
-						}
-					]
-				}
-			]
-		}
-	],
-	"granularity": "MINUTE",
-	"error": null
-}`
-
-const trafficAdvancedResponse = `{
-	"serviceStats": [
-		{
-			"serviceID": "15e72be2-cb5a-4451-90a7-73e72553eb2a",
-			"points": [
-				{
-					"timestamp": 1752827340000,
-					"metrics": [
+						},
 						{
 							"providerName": "cfrnt",
 							"geo": null,
-							"advancedMetricName": null,
-							"advancedMetricValue": "value",
+							"advancedMetricName": "status_code",
+							"advancedMetricValue": "200",
 							"metrics": {
 								"hits": 15,
 								"bytes": 3659
@@ -138,8 +112,18 @@ const trafficAdvancedResponse = `{
 						{
 							"providerName": "fs",
 							"geo": null,
-							"advancedMetricName": null,
-							"advancedMetricValue": "value",
+							"advancedMetricName": "http_version",
+							"advancedMetricValue": "HTTP/2",
+							"metrics": {
+								"hits": 61,
+								"bytes": 1463
+							}
+						},
+						{
+							"providerName": "fs",
+							"geo": null,
+							"advancedMetricName": "method",
+							"advancedMetricValue": "GET",
 							"metrics": {
 								"hits": 61,
 								"bytes": 1463

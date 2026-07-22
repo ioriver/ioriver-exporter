@@ -1,7 +1,6 @@
 package collectors
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -23,7 +22,7 @@ type MetricsProvider interface {
 }
 
 type TrafficCollector struct {
-	metricsProviders map[string]MetricsProvider
+	metricsProvider  MetricsProvider
 	trafficTimestamp bool
 	logger           log.Logger
 	mtx              sync.RWMutex
@@ -31,7 +30,6 @@ type TrafficCollector struct {
 
 func NewTrafficCollector(trafficTimestamp bool, logger log.Logger) *TrafficCollector {
 	return &TrafficCollector{
-		metricsProviders: map[string]MetricsProvider{},
 		trafficTimestamp: trafficTimestamp,
 		logger:           logger,
 	}
@@ -45,36 +43,39 @@ func (c *TrafficCollector) Describe(ch chan<- *prometheus.Desc) {
 // Collect collects Prometheus metrics from all registered metrics providers.
 func (c *TrafficCollector) Collect(ch chan<- prometheus.Metric) {
 	c.mtx.RLock()
-	defer c.mtx.RUnlock()
+	provider := c.metricsProvider
+	c.mtx.RUnlock()
 
-	for _, metricsProvider := range c.metricsProviders {
-		metrics := metricsProvider.GetPrometheusMetrics()
-		for _, m := range metrics {
-			if c.trafficTimestamp {
-				ch <- prometheus.NewMetricWithTimestamp(time.UnixMilli(m.Timestamp), *m.Metric)
-			} else {
-				ch <- *m.Metric
-			}
+	if provider == nil {
+		return
+	}
+
+	metrics := provider.GetPrometheusMetrics()
+	for _, m := range metrics {
+		if c.trafficTimestamp {
+			ch <- prometheus.NewMetricWithTimestamp(time.UnixMilli(m.Timestamp), *m.Metric)
+		} else {
+			ch <- *m.Metric
 		}
 	}
 }
 
-// Register a metric provider.
-func (c *TrafficCollector) RegisterMetricsProvider(serviceId string, provider MetricsProvider) {
-	level.Debug(c.logger).Log("collector", fmt.Sprintf("register metrics provider for %s", serviceId))
+// Register the shared metrics provider.
+func (c *TrafficCollector) RegisterMetricsProvider(provider MetricsProvider) {
+	level.Debug(c.logger).Log("collector", "register metrics provider")
 
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	c.metricsProviders[serviceId] = provider
+	c.metricsProvider = provider
 }
 
-// Unregister the metric provider.
-func (c *TrafficCollector) UnregisterMetricsProvider(serviceId string) {
-	level.Debug(c.logger).Log("collector", fmt.Sprintf("unregister metrics provider for %s", serviceId))
+// Unregister the shared metrics provider.
+func (c *TrafficCollector) UnregisterMetricsProvider() {
+	level.Debug(c.logger).Log("collector", "unregister metrics provider")
 
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	delete(c.metricsProviders, serviceId)
+	c.metricsProvider = nil
 }

@@ -3,6 +3,7 @@ package cache
 import (
 	"fmt"
 	"ioriver_exporter/api"
+	"ioriver_exporter/internal/filter"
 	"sync"
 
 	"github.com/go-kit/log"
@@ -15,14 +16,19 @@ import (
 type ServiceCache struct {
 	services  map[string]ioriver.Service
 	iorClient api.IORiverClient
+	filter    *filter.ServiceFilter
 	logger    log.Logger
 	mtx       sync.RWMutex
 }
 
-func NewServiceCache(iorClient api.IORiverClient, logger log.Logger) *ServiceCache {
+func NewServiceCache(iorClient api.IORiverClient, svcFilter *filter.ServiceFilter, logger log.Logger) *ServiceCache {
 	c := &ServiceCache{
 		logger:    logger,
 		iorClient: iorClient,
+		filter:    svcFilter,
+	}
+	if c.filter == nil {
+		c.filter, _ = filter.NewServiceFilter(nil, "", "", "")
 	}
 	return c
 }
@@ -39,7 +45,6 @@ func (c *ServiceCache) Refresh() error {
 
 	newServices := map[string]ioriver.Service{}
 	for _, s := range services {
-		level.Debug(c.logger).Log("service_id", s.Id, "cache", "accepted")
 		newServices[s.Id] = s
 	}
 	c.mtx.Lock()
@@ -50,13 +55,17 @@ func (c *ServiceCache) Refresh() error {
 }
 
 // Get a view of the all services in the cache
-func (c *ServiceCache) GetServicesInfo() (info []api.ServiceInfo) {
+func (c *ServiceCache) GetServicesInfo() (services []api.ServiceInfo) {
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()
 
-	info = make([]api.ServiceInfo, 0, len(c.services))
+	services = make([]api.ServiceInfo, 0, len(c.services))
 	for _, s := range c.services {
-		info = append(info, api.ServiceInfo{Id: s.Id, Name: s.Name})
+		services = append(services, api.ServiceInfo{Id: s.Id, Name: s.Name})
 	}
-	return info
+	services = c.filter.Apply(services)
+	for _, s := range services {
+		level.Debug(c.logger).Log("msg", "service in cache after filter", "service_id", s.Id, "service_name", s.Name)
+	}
+	return services
 }

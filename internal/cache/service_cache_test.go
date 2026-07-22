@@ -15,7 +15,7 @@ func TestServiceCacheRefresh(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		cache        = NewServiceCache(iorClient, level.NewFilter(logger, level.AllowDebug()))
+		cache        = NewServiceCache(iorClient, nil, level.NewFilter(logger, level.AllowDebug()))
 	)
 
 	cache.Refresh()
@@ -36,7 +36,7 @@ func TestServiceCacheRefresh(t *testing.T) {
 func TestServiceCacheGetServiceInfo(t *testing.T) {
 	var (
 		iorClient = &tests.FakeIorClient{}
-		cache     = NewServiceCache(iorClient, log.NewNopLogger())
+		cache     = NewServiceCache(iorClient, nil, log.NewNopLogger())
 	)
 
 	serviceInfo := cache.GetServicesInfo()
