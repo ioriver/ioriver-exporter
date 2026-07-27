@@ -16,6 +16,7 @@ const (
 	tokenEnvVar            = "IORIVER_API_TOKEN"
 	listenEnvVar           = "IORIVER_LISTEN"
 	serviceRefreshEnvVar   = "IORIVER_SERVICE_REFRESH"
+	trafficRefreshEnvVar   = "IORIVER_TRAFFIC_REFRESH"
 	trafficTimestampEnvVar = "IORIVER_TRAFFIC_TIMESTAMP"
 	verboseEnvVar          = "IORIVER_VERBOSE"
 	serviceIDsEnvVar       = "IORIVER_SERVICE_IDS"
@@ -27,6 +28,7 @@ const (
 const (
 	defaultListen         = "127.0.0.1:8080"
 	defaultServiceRefresh = 1 * time.Minute
+	defaultTrafficRefresh = 45 * time.Second
 )
 
 // stringSliceFlag implements flag.Value for a repeatable flag that also
@@ -57,6 +59,7 @@ type Settings struct {
 	Token            string
 	Listen           string
 	ServiceRefresh   time.Duration
+	TrafficRefresh   time.Duration
 	TrafficTimestamp bool
 	Verbose          bool
 	Version          bool
@@ -76,6 +79,7 @@ func CollectSettings(name string) (*Settings, error) {
 	fs.StringVar(&settings.Token, "token", "", tokenUsage)
 	fs.StringVar(&settings.Listen, "listen", defaultListen, "listen address for HTTP requests")
 	fs.DurationVar(&settings.ServiceRefresh, "service-refresh", defaultServiceRefresh, "how often to poll IORiver to refresh the list of services (15s–10m)")
+	fs.DurationVar(&settings.TrafficRefresh, "traffic-refresh", defaultTrafficRefresh, fmt.Sprintf("how often to poll IORiver for traffic data (min 15s; env %s)", trafficRefreshEnvVar))
 
 	fs.BoolVar(&settings.TrafficTimestamp, "traffic-timestamp", false, "time series should be created with the traffic timestamp")
 	fs.BoolVar(&settings.Verbose, "verbose", false, "print more information")
@@ -108,6 +112,10 @@ func (s *Settings) Validate(logger log.Logger) bool {
 		level.Warn(logger).Log("warn", "-service-refresh cannot be shorter than 15s; set default value")
 		s.ServiceRefresh = defaultServiceRefresh
 	}
+	if s.TrafficRefresh < 15*time.Second {
+		level.Warn(logger).Log("warn", "-traffic-refresh cannot be shorter than 15s; set default value")
+		s.TrafficRefresh = defaultTrafficRefresh
+	}
 	return isValid
 }
 
@@ -125,6 +133,13 @@ func (s *Settings) supplementSettingsFromEnv() {
 		if refresh := os.Getenv(serviceRefreshEnvVar); refresh != "" {
 			if d, err := time.ParseDuration(refresh); err == nil {
 				s.ServiceRefresh = d
+			}
+		}
+	}
+	if s.TrafficRefresh == defaultTrafficRefresh {
+		if refresh := os.Getenv(trafficRefreshEnvVar); refresh != "" {
+			if d, err := time.ParseDuration(refresh); err == nil {
+				s.TrafficRefresh = d
 			}
 		}
 	}

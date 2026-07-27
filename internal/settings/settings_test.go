@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 )
 
 func TestStringSliceFlag(t *testing.T) {
@@ -71,8 +72,9 @@ func TestSupplementSettingsFromEnv(t *testing.T) {
 		setenv(t, serviceAllowlistEnvVar, "^Prod")
 		setenv(t, serviceBlocklistEnvVar, "TEST")
 		setenv(t, serviceShardEnvVar, "2/3")
+		setenv(t, trafficRefreshEnvVar, "90s")
 
-		s := &Settings{}
+		s := &Settings{TrafficRefresh: defaultTrafficRefresh}
 		s.supplementSettingsFromEnv()
 
 		wantIDs := []string{"id1", "id2", "id3"}
@@ -88,6 +90,9 @@ func TestSupplementSettingsFromEnv(t *testing.T) {
 		}
 		if s.ServiceShard != "2/3" {
 			t.Errorf("ServiceShard: want 2/3, got %q", s.ServiceShard)
+		}
+		if s.TrafficRefresh != 90*time.Second {
+			t.Errorf("TrafficRefresh: want 90s, got %v", s.TrafficRefresh)
 		}
 	})
 

@@ -8,6 +8,7 @@ import (
 	"ioriver_exporter/tests"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -21,8 +22,8 @@ func TestSubscriber(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
-		subscriber   = NewSubscriber(traffic)
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()), false)
+		subscriber   = NewSubscriber(traffic, 60*time.Second)
 	)
 	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
@@ -32,10 +33,10 @@ func TestSubscriber(t *testing.T) {
 		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 subscriber=update", tests.ServiceId),
 		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 subscriber=update", tests.ServiceId),
 		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.StatusCode),
-		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.StatusCode),
-		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpVersion),
+		fmt.Sprintf("level=debug subscriber=no_data service_id=%s provider=fs advanced_metric=%s reason=no_timestamp", tests.ServiceId, ioriver.StatusCode),
+		fmt.Sprintf("level=debug subscriber=no_data service_id=%s provider=cfrnt advanced_metric=%s reason=no_timestamp", tests.ServiceId, ioriver.HttpVersion),
 		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpVersion),
-		fmt.Sprintf("level=debug service_id=%s provider=cfrnt time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpMethod),
+		fmt.Sprintf("level=debug subscriber=no_data service_id=%s provider=cfrnt advanced_metric=%s reason=no_timestamp", tests.ServiceId, ioriver.HttpMethod),
 		fmt.Sprintf("level=debug service_id=%s provider=fs time=1752827340000 advanced=%s subscriber=update", tests.ServiceId, ioriver.HttpMethod),
 	}
 	act := strings.Split(strings.TrimSpace(loggerBuffer.String()), "\n")
@@ -47,8 +48,8 @@ func TestSubscriberFailedToGetStat(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: "not_valid"}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
-		subscriber   = NewSubscriber(traffic)
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()), false)
+		subscriber   = NewSubscriber(traffic, 60*time.Second)
 	)
 	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
@@ -73,14 +74,14 @@ func TestSubscriberStatHasNoPoints(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{TrafficResponseJson: resp}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
-		subscriber   = NewSubscriber(traffic)
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()), false)
+		subscriber   = NewSubscriber(traffic, 60*time.Second)
 	)
 	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
 	startStopSubscription(t, subscriber)
 
-	exp := fmt.Sprintf("level=debug subscriber=\"no statistic points for service %s", tests.ServiceId)
+	exp := fmt.Sprintf("level=debug subscriber=no_data service_id=%s reason=no_providers", tests.ServiceId)
 	act := strings.TrimSpace(loggerBuffer.String())
 	if !strings.Contains(act, exp) {
 		t.Error("unexpected debug message")
@@ -92,8 +93,8 @@ func TestGetPrometheusMetrics(t *testing.T) {
 		iorClient    = &tests.FakeIorClient{}
 		loggerBuffer = &bytes.Buffer{}
 		logger       = log.NewLogfmtLogger(loggerBuffer)
-		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()))
-		subscriber   = NewSubscriber(traffic)
+		traffic      = NewIORiverTraffic(iorClient, level.NewFilter(logger, level.AllowDebug()), false)
+		subscriber   = NewSubscriber(traffic, 60*time.Second)
 	)
 	subscriber.UpdateServices([]api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}})
 
@@ -156,8 +157,8 @@ func TestGetPrometheusMetrics(t *testing.T) {
 func TestSubscriberEmptyServiceListClearsMetrics(t *testing.T) {
 	var (
 		iorClient  = &tests.FakeIorClient{}
-		traffic    = NewIORiverTraffic(iorClient, log.NewNopLogger())
-		subscriber = NewSubscriber(traffic)
+		traffic    = NewIORiverTraffic(iorClient, log.NewNopLogger(), false)
+		subscriber = NewSubscriber(traffic, 60*time.Second)
 	)
 
 	// Populate metrics with a valid service.
@@ -184,4 +185,73 @@ func startStopSubscription(t *testing.T, subscriber *Subscriber) {
 	go func() { ch <- subscriber.Subscribe(ctx) }()
 	cancel()
 	<-ch
+}
+
+func TestTrafficTimestampCursorAdvancesPerPoll(t *testing.T) {
+	const (
+		t1 = int64(1752827340000)
+		t2 = int64(1752827400000) // t1 + 60s
+		t3 = int64(1752827460000) // t1 + 120s
+	)
+
+	twoPointResp := fmt.Sprintf(`{
+		"serviceStats": [{
+			"serviceID": "%s",
+			"points": [
+				{
+					"timestamp": %d,
+					"metrics": [{"providerName": "cfrnt", "geo": null, "advancedMetricName": null, "advancedMetricValue": null, "metrics": {"hits": 100, "bytes": 1000, "cachedHitsPercentage": 90.0, "cachedBytesPercentage": 90.0, "errorsPercentage": 1.0}}]
+				},
+				{
+					"timestamp": %d,
+					"metrics": [{"providerName": "cfrnt", "geo": null, "advancedMetricName": null, "advancedMetricValue": null, "metrics": {"hits": 200, "bytes": 2000, "cachedHitsPercentage": 90.0, "cachedBytesPercentage": 90.0, "errorsPercentage": 1.0}}]
+				}
+			]
+		}]
+	}`, tests.ServiceId, t1, t2)
+
+	iorClient := &tests.FakeIorClient{TrafficResponseJson: twoPointResp}
+	traffic := NewIORiverTraffic(iorClient, log.NewNopLogger(), true)
+	services := []api.ServiceInfo{{Id: tests.ServiceId, Name: "ioriver"}}
+
+	// Poll 1: cursor=0, expect t2 (MAX — avoids out-of-order writes to Prometheus on restart).
+	m1 := traffic.GetTrafficMetrics(services)
+	if len(m1) == 0 {
+		t.Fatal("poll 1: expected metrics, got none")
+	}
+	for _, m := range m1 {
+		if m.GetTimestamp() != t2 {
+			t.Errorf("poll 1: expected timestamp %d, got %d", t2, m.GetTimestamp())
+		}
+	}
+
+	// Poll 2: cursor=t2, no timestamps > t2 — expect no metrics (caught up).
+	m2 := traffic.GetTrafficMetrics(services)
+	if len(m2) != 0 {
+		t.Errorf("poll 2: expected no metrics when caught up, got %d", len(m2))
+	}
+
+	// Add t3 to the response and verify the cursor advances to it.
+	threePointResp := fmt.Sprintf(`{
+		"serviceStats": [{
+			"serviceID": "%s",
+			"points": [
+				{"timestamp": %d, "metrics": [{"providerName": "cfrnt", "geo": null, "advancedMetricName": null, "advancedMetricValue": null, "metrics": {"hits": 100, "bytes": 1000, "cachedHitsPercentage": 90.0, "cachedBytesPercentage": 90.0, "errorsPercentage": 1.0}}]},
+				{"timestamp": %d, "metrics": [{"providerName": "cfrnt", "geo": null, "advancedMetricName": null, "advancedMetricValue": null, "metrics": {"hits": 200, "bytes": 2000, "cachedHitsPercentage": 90.0, "cachedBytesPercentage": 90.0, "errorsPercentage": 1.0}}]},
+				{"timestamp": %d, "metrics": [{"providerName": "cfrnt", "geo": null, "advancedMetricName": null, "advancedMetricValue": null, "metrics": {"hits": 300, "bytes": 3000, "cachedHitsPercentage": 90.0, "cachedBytesPercentage": 90.0, "errorsPercentage": 1.0}}]}
+			]
+		}]
+	}`, tests.ServiceId, t1, t2, t3)
+	iorClient.TrafficResponseJson = threePointResp
+
+	// Poll 3: cursor=t2, candidates=[t3], expect t3.
+	m3 := traffic.GetTrafficMetrics(services)
+	if len(m3) == 0 {
+		t.Fatal("poll 3: expected metrics for t3, got none")
+	}
+	for _, m := range m3 {
+		if m.GetTimestamp() != t3 {
+			t.Errorf("poll 3: expected timestamp %d, got %d", t3, m.GetTimestamp())
+		}
+	}
 }

@@ -10,23 +10,23 @@ import (
 	"time"
 )
 
-const updateInterval = 60 * time.Second
-
 // Subscriber polls IORiver traffic statistics endpoints for a given service
 // and keep it as Prometheus metrics.
 type Subscriber struct {
 	iorTraffic *IORiverTraffic
 	services   []api.ServiceInfo
 	metrics    []metrics.Metrics
+	interval   time.Duration
 
 	mtx sync.RWMutex
 }
 
-func NewSubscriber(iorTraffic *IORiverTraffic) *Subscriber {
+func NewSubscriber(iorTraffic *IORiverTraffic, interval time.Duration) *Subscriber {
 	return &Subscriber{
 		iorTraffic: iorTraffic,
 		services:   make([]api.ServiceInfo, 0),
 		metrics:    make([]metrics.Metrics, 0),
+		interval:   interval,
 	}
 }
 
@@ -46,7 +46,7 @@ func (s *Subscriber) Subscribe(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 
-		case <-time.After(updateInterval):
+		case <-time.After(s.interval):
 			s.updateMetrics()
 		}
 	}

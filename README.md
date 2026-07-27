@@ -147,6 +147,7 @@ Once deployed, the metrics endpoint is reachable at:
   IORIVER_API_TOKEN:           IO River API authentication token (required, unless the `-token` command-line option is included)
   IORIVER_LISTEN:              Listen address for HTTP requests
   IORIVER_SERVICE_REFRESH:     How often to poll IO River to refresh the list of services (15s–10m)
+  IORIVER_TRAFFIC_REFRESH:     How often to poll IO River for traffic data (min 15s, default 60s)
   IORIVER_TRAFFIC_TIMESTAMP:   Time series should be created with the traffic timestamp
   IORIVER_VERBOSE:             Print more information
   IORIVER_SERVICE_IDS:         Comma-separated list of service IDs to export (default: all)
@@ -267,6 +268,22 @@ To ensure that queries reflect only explicitly retrieved data points, it is reco
 
 ```promql
 last_over_time(ioriver_traffic_hits{serviceID="0fb49f03-5078-4f44-ad3f-623a82184d93", providerName="Fastly"}[1m])
+```
+
+### Prometheus Requirements for Traffic Timestamps
+
+When `IORIVER_TRAFFIC_TIMESTAMP=true` is set, each metric is emitted with the original CDN data timestamp rather than the scrape time. Prometheus must be configured to handle this correctly:
+
+**1. `honor_timestamps: true` in the scrape config (required)**
+
+This instructs Prometheus to store metrics at their embedded timestamp instead of the scrape time. It is the default, but must not be disabled:
+
+```yaml
+scrape_configs:
+  - job_name: ioriver-exporter
+    honor_timestamps: true   # default; do not set to false
+    static_configs:
+      - targets: ['<ioriver-exporter-host>:8080']
 ```
 
 ## Grafana Dashboards
