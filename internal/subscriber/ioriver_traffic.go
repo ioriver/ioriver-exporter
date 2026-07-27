@@ -17,12 +17,19 @@ import (
 const metricsLookBack = -40 * time.Minute
 
 type IORiverTraffic struct {
-	iorClient api.IORiverClient
-	logger    log.Logger
+	iorClient        api.IORiverClient
+	logger           log.Logger
+	trafficTimestamp bool
+	lastEmittedTS    map[string]int64
 }
 
-func NewIORiverTraffic(iorClient api.IORiverClient, logger log.Logger) *IORiverTraffic {
-	return &IORiverTraffic{iorClient: iorClient, logger: logger}
+func NewIORiverTraffic(iorClient api.IORiverClient, logger log.Logger, trafficTimestamp bool) *IORiverTraffic {
+	return &IORiverTraffic{
+		iorClient:        iorClient,
+		logger:           logger,
+		trafficTimestamp: trafficTimestamp,
+		lastEmittedTS:    make(map[string]int64),
+	}
 }
 
 // GetTrafficMetrics returns core and advanced (status code / HTTP version / method) traffic metrics for all services.
@@ -73,32 +80,42 @@ func (t *IORiverTraffic) getRecentTraffic(services []api.ServiceInfo) (*ioriver.
 }
 
 func (t *IORiverTraffic) findTrafficMetrics(traffic *ioriver.Traffic, service api.ServiceInfo) []metrics.Metrics {
-	maxTimestamp := t.getMaxTimestamp(service.Id, traffic.ServiceStats, "")
-	if maxTimestamp == 0 {
-		level.Debug(t.logger).Log("subscriber", fmt.Sprintf("no statistic points for service %s", service.Id))
+	providerNames := getAllProviderNames(traffic.ServiceStats, service.Id)
+	if len(providerNames) == 0 {
+		level.Debug(t.logger).Log("subscriber", "no_data", "service_id", service.Id, "reason", "no_providers")
 		return []metrics.Metrics{}
 	}
 
-	// convert all stats metrics
+	// convert all stats metrics using a per-provider cursor timestamp
 	var out []metrics.Metrics
-	for _, providerName := range getAllProviderNames(traffic.ServiceStats, service.Id) {
-		providerMetrics := t.convertStatsToMetrics(traffic, service.Id, service.Name, providerName, maxTimestamp)
+	for _, providerName := range providerNames {
+		timestamp := t.selectTimestamp(service.Id, traffic.ServiceStats, "", providerName)
+		if timestamp == 0 {
+			level.Debug(t.logger).Log("subscriber", "no_data", "service_id", service.Id, "provider", providerName, "reason", "no_timestamp")
+			continue
+		}
+		providerMetrics := t.convertStatsToMetrics(traffic, service.Id, service.Name, providerName, timestamp)
 		out = append(out, providerMetrics...)
 	}
 	return out
 }
 
 func (t *IORiverTraffic) findAdvancedTrafficMetrics(traffic *ioriver.Traffic, service api.ServiceInfo, advancedMetric ioriver.AdvancedMetric) []metrics.Metrics {
-	maxTimestamp := t.getMaxTimestamp(service.Id, traffic.ServiceStats, advancedMetric.String())
-	if maxTimestamp == 0 {
-		level.Debug(t.logger).Log("subscriber", fmt.Sprintf("no statistic %s points for service %s", advancedMetric.String(), service.Id))
+	providerNames := getAllProviderNames(traffic.ServiceStats, service.Id)
+	if len(providerNames) == 0 {
+		level.Debug(t.logger).Log("subscriber", "no_data", "service_id", service.Id, "advanced_metric", advancedMetric, "reason", "no_providers")
 		return []metrics.Metrics{}
 	}
 
-	// convert all advanced stats metrics
+	// convert all advanced stats metrics using a per-provider cursor timestamp
 	var out []metrics.Metrics
-	for _, providerName := range getAllProviderNames(traffic.ServiceStats, service.Id) {
-		providerMetrics := t.convertAdvancedStatsToMetrics(traffic, service.Id, service.Name, providerName, maxTimestamp, advancedMetric)
+	for _, providerName := range providerNames {
+		timestamp := t.selectTimestamp(service.Id, traffic.ServiceStats, advancedMetric.String(), providerName)
+		if timestamp == 0 {
+			level.Debug(t.logger).Log("subscriber", "no_data", "service_id", service.Id, "provider", providerName, "advanced_metric", advancedMetric, "reason", "no_timestamp")
+			continue
+		}
+		providerMetrics := t.convertAdvancedStatsToMetrics(traffic, service.Id, service.Name, providerName, timestamp, advancedMetric)
 		out = append(out, providerMetrics...)
 	}
 	return out
@@ -178,41 +195,72 @@ func (t *IORiverTraffic) convertAdvancedStatsToMetrics(
 	return providerMetrics
 }
 
-func (t *IORiverTraffic) getMaxTimestamp(serviceId string, stats []ioriver.ServiceStats, advancedMetricName string) int64 {
-	if len(stats) == 0 {
-		level.Debug(t.logger).Log("subscriber", fmt.Sprintf("empty service stat for service %s", serviceId))
-		return 0
-	}
+// tsKey returns a map key for the per-provider timestamp cursor.
+func tsKey(serviceId, providerName, metricType string) string {
+	return serviceId + "\x00" + providerName + "\x00" + metricType
+}
 
+// collectTimestampsForProvider returns all timestamps available in stats for the
+// given service, provider, and metric type.
+func (t *IORiverTraffic) collectTimestampsForProvider(serviceId string, stats []ioriver.ServiceStats, advancedMetricName string, providerName string) []int64 {
 	var timestamps []int64
 	for _, stat := range stats {
 		if stat.ServiceId != serviceId {
 			continue
 		}
 		for _, p := range stat.Points {
-			matched := false
 			for _, metric := range p.Metrics {
-				if advancedMetricName == "" {
-					if metric.AdvancedMetricName == nil {
-						matched = true
-						break
-					}
+				if metric.ProviderName != providerName {
 					continue
 				}
-				if metric.AdvancedMetricName != nil && *metric.AdvancedMetricName == advancedMetricName {
-					matched = true
+				if advancedMetricName == "" {
+					if metric.AdvancedMetricName == nil {
+						timestamps = append(timestamps, p.Timestamp)
+						break
+					}
+				} else if metric.AdvancedMetricName != nil && *metric.AdvancedMetricName == advancedMetricName {
+					timestamps = append(timestamps, p.Timestamp)
 					break
 				}
 			}
-			if matched {
-				timestamps = append(timestamps, p.Timestamp)
-			}
 		}
 	}
-	if len(timestamps) > 0 {
+	return timestamps
+}
+
+// selectTimestamp picks which timestamp to emit for a given provider.
+// Without trafficTimestamp: always the latest (existing behaviour).
+// With trafficTimestamp: the earliest timestamp after the last emitted one,
+// so every available minute is reported in order across successive polls.
+func (t *IORiverTraffic) selectTimestamp(serviceId string, stats []ioriver.ServiceStats, advancedMetricName, providerName string) int64 {
+	timestamps := t.collectTimestampsForProvider(serviceId, stats, advancedMetricName, providerName)
+	if len(timestamps) == 0 {
+		return 0
+	}
+	if !t.trafficTimestamp {
 		return slices.Max(timestamps)
 	}
-	return 0
+	key := tsKey(serviceId, providerName, advancedMetricName)
+	last := t.lastEmittedTS[key]
+	if last == 0 {
+		// First emission: start from the most recent data point to match the
+		// pre-cursor behaviour and avoid writing out-of-order samples to Prometheus.
+		next := slices.Max(timestamps)
+		t.lastEmittedTS[key] = next
+		return next
+	}
+	var candidates []int64
+	for _, ts := range timestamps {
+		if ts > last {
+			candidates = append(candidates, ts)
+		}
+	}
+	if len(candidates) == 0 {
+		return 0
+	}
+	next := slices.Min(candidates)
+	t.lastEmittedTS[key] = next
+	return next
 }
 
 func (t *IORiverTraffic) getTimeRange() (from time.Time, to time.Time) {
@@ -240,12 +288,13 @@ func getAllProviderNames(stats []ioriver.ServiceStats, serviceId string) []strin
 
 func abbreviationToProviderName(name string) string {
 	mapping := map[string]string{
-		"fs":     "Fastly",
-		"cf":     "Cloudflare",
-		"cfrnt":  "CloudFront",
-		"azcdn":  "Azure CDN",
-		"vcdn":   "vCDN",
-		"akamai": "Akamai",
+		"fs":         "Fastly",
+		"cf":         "Cloudflare",
+		"cfrnt":      "CloudFront",
+		"azcdn":      "Azure CDN",
+		"vcdn":       "vCDN",
+		"akamai":     "Akamai",
+		"cdnetworks": "CDNetworks",
 	}
 	v, ok := mapping[name]
 	if ok {

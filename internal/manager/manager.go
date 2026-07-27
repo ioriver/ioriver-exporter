@@ -87,8 +87,8 @@ func (m *SubscriptionManager) StartSubscription() {
 
 	level.Info(m.logger).Log("subscriber", "start")
 	var (
-		traffic     = subscriber.NewIORiverTraffic(m.iorClient, m.logger)
-		subscriber  = subscriber.NewSubscriber(traffic)
+		traffic     = subscriber.NewIORiverTraffic(m.iorClient, m.logger, m.settings.TrafficTimestamp)
+		subscriber  = subscriber.NewSubscriber(traffic, m.settings.TrafficRefresh)
 		ctx, cancel = context.WithCancel(context.Background())
 		done        = make(chan error, 1)
 	)
